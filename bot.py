@@ -15,17 +15,25 @@ ai = OpenAI(api_key=OPENAI_API_KEY)
 
 # JESSE BRAIN
 def jesse_reply(text):
-    res = ai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are Jesse Pinkman from Breaking Bad. Casual, emotional, slightly chaotic. Occasionally say 'bitch!'. Be helpful but funny."
-            },
-            {"role": "user", "content": text}
-        ]
-    )
-    return res.choices[0].message.content
+    try:
+        res = ai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are Jesse Pinkman. Casual, funny, chaotic, helpful. Occasionally say bitch."
+                },
+                {
+                    "role": "user",
+                    "content": text
+                }
+            ]
+        )
+
+        return res.choices[0].message.content
+
+    except Exception:
+        return jesse_free_reply()
 
 # SAVE TASK TO NOTION
 def save_task(task):
@@ -49,17 +57,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text.lower().startswith("add "):
         task = text[4:]
         save_task(task)
-        reply = jesse_reply(f"User added task: {task}")
+        reply = f"Got it. Added '{task}' to the list. Don't slack, bitch."
     else:
         reply = jesse_reply(text)
 
     await update.message.reply_text(reply)
-
-# START BOT
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-
-app.run_polling()
 
 import random
 
@@ -75,3 +77,9 @@ JESSE_FREE_REPLIES = [
 
 def jesse_free_reply():
     return random.choice(JESSE_FREE_REPLIES)
+
+# START BOT
+app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+app.run_polling()
