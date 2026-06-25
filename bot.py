@@ -24,10 +24,15 @@ if not NOTION_DB_ID:
     raise ValueError("Missing NOTION_DB_ID")
 
 # -------------------------
-# NOTION
+# NOTION CLIENT
 # -------------------------
-notion = Client(auth=NOTION_API_KEY)
-print("Notion client initialized")
+try:
+    notion = Client(auth=NOTION_API_KEY)
+    print("Notion client initialized")
+except Exception:
+    print("NOTION INIT FAILED")
+    traceback.print_exc()
+    sys.exit(1)
 
 # -------------------------
 # GIFS
@@ -52,29 +57,7 @@ def jesse(text):
     return f"{random.choice(prefixes)} {text} {random.choice(suffixes)}"
 
 # -------------------------
-# GIF SENDER (STABLE)
-# -------------------------
-async def send_gif(update: Update, key: str):
-    try:
-        if not update.message:
-            return
-
-        file_id = JESSE_GIFS.get(key)
-        if not file_id:
-            file_id = random.choice(DEFAULT_GIFS)
-
-        if file_id:
-            try:
-                await update.message.reply_animation(animation=file_id)
-            except Exception:
-                print("[GIF WARNING] failed to send gif")
-
-    except Exception:
-        print("[GIF ERROR]")
-        traceback.print_exc()
-
-# -------------------------
-# NOTION FETCH (FIXED & SAFE)
+# NOTION FETCH (FIXED)
 # -------------------------
 def get_tasks():
     try:
@@ -85,14 +68,13 @@ def get_tasks():
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # SAFE TITLE (matches your DB: "Task")
-            title_prop = props.get("Task", {}).get("title", [])
+            # ✅ FIXED: matches your actual Notion DB
+            title_prop = props.get("Task Type", {}).get("title", [])
             title = "UNKNOWN TASK"
             if title_prop:
                 title = title_prop[0].get("plain_text", "UNKNOWN TASK")
 
-            # SAFE STATUS (matches your DB: "Status")
-            status_obj = props.get("Status", {}).get("select")
+            status_obj = props.get("Status Type", {}).get("select")
             status = status_obj.get("name") if status_obj else ""
 
             tasks.append({
@@ -108,7 +90,7 @@ def get_tasks():
         return []
 
 # -------------------------
-# FILTER (FIXED LOGIC)
+# FILTER
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
@@ -126,8 +108,8 @@ def save_task(task):
         notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
-                "Task": {"title": [{"text": {"content": task}}]},
-                "Status": {"select": {"name": "Pending"}},
+                "Task Type": {"title": [{"text": {"content": task}}]},
+                "Status Type": {"select": {"name": "Pending"}},
             },
         )
     except Exception:
@@ -142,7 +124,7 @@ def mark_done(task_name):
         results = notion.databases.query(
             database_id=NOTION_DB_ID,
             filter={
-                "property": "Task",
+                "property": "Task Type",
                 "title": {"contains": task_name}
             }
         )
@@ -155,7 +137,7 @@ def mark_done(task_name):
         notion.pages.update(
             page_id=page_id,
             properties={
-                "Status": {"select": {"name": "Done"}}
+                "Status Type": {"select": {"name": "Done"}}
             }
         )
 
@@ -192,9 +174,6 @@ def reply_logic(text):
             return jesse("No pending jobs.")
         return jesse("Your backlog:\n- " + "\n- ".join([t["title"] for t in tasks]))
 
-    if text == "help":
-        return jesse("add <task>, done <task>, focus, today, list")
-
     return jesse(random.choice(["Noted.", "Alright.", "Got it.", "Say less.", "I'm tracking it."]))
 
 # -------------------------
@@ -208,17 +187,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text = msg.text.strip()
 
-        gif_key = None
-        if text.lower().startswith("add "):
-            gif_key = "add"
-        elif text.lower().startswith("done "):
-            gif_key = "done"
-        elif text.lower() == "focus":
-            gif_key = "focus"
-
         reply = reply_logic(text)
-
-        await send_gif(update, gif_key)
         await msg.reply_text(reply)
 
     except Exception:
