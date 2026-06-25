@@ -63,38 +63,56 @@ async def send_gif(update: Update, key: str):
 
 
 # -------------------------
-# NOTION FETCH (ROBUST)
-# -------------------------
 def get_tasks():
     try:
+        print("\n========================")
+        print("NOTION DEBUG START")
+        print("DB ID:", NOTION_DB_ID)
+
         results = notion.databases.query(database_id=NOTION_DB_ID)
+
+        raw_results = results.get("results", [])
+
+        print("RAW RESULTS COUNT:", len(raw_results))
 
         tasks = []
 
-        for r in results.get("results", []):
+        for i, r in enumerate(raw_results):
+            print(f"\n--- PAGE {i + 1} ---")
+
             props = r.get("properties", {})
 
-            # title
+            print("PROPERTY KEYS:")
+            print(list(props.keys()))
+
             title_prop = props.get("Task", {}).get("title", [])
+
             title = "UNKNOWN TASK"
-
             if title_prop:
-                title = title_prop[0].get("plain_text", title)
+                title = title_prop[0].get("plain_text", "UNKNOWN TASK")
 
-            # status (Select)
-            status_obj = props.get("Status", {}).get("select")
-            status = (status_obj.get("name") if status_obj else "")
-            status = status.strip().lower()
+            status_prop = props.get("Status", {})
+            status_obj = status_prop.get("select")
 
-            print(f"FOUND → {title} | STATUS → {status}")
+            status = ""
+            if status_obj:
+                status = status_obj.get("name", "")
 
-            tasks.append({"title": title, "status": status})
+            print("TITLE :", repr(title))
+            print("STATUS:", repr(status))
 
-        print("TOTAL TASKS:", len(tasks))
+            tasks.append({
+                "title": title,
+                "status": status.strip().lower()
+            })
+
+        print("\nFINAL TASKS:", tasks)
+        print("========================\n")
+
         return tasks
 
     except Exception:
-        print("💥 NOTION ERROR")
+        print("💥 NOTION QUERY ERROR")
         traceback.print_exc()
         return []
 
@@ -107,14 +125,16 @@ PENDING_STATES = {"pending", "to do", "todo", "in progress"}
 def pending_tasks():
     tasks = get_tasks()
 
+    print("TASKS RECEIVED:", tasks)
+
     filtered = [
         t for t in tasks
-        if (t.get("status") or "") in PENDING_STATES
+        if (t.get("status") or "").strip().lower() in PENDING_STATES
     ]
 
-    print("PENDING FOUND:", len(filtered))
-    return filtered
+    print("FILTERED TASKS:", filtered)
 
+    return filtered
 
 def top_task():
     tasks = pending_tasks()
