@@ -60,22 +60,25 @@ async def send_gif(update: Update, key: str):
         traceback.print_exc()
 
 # -------------------------
-# NOTION FETCH
+# NOTION FETCH (FIXED)
 # -------------------------
 def get_tasks():
     try:
-        results = notion.databases.query(database_id=NOTION_DB_ID)
+        # 🔥 FIXED LINE
+        results = notion.query_database(database_id=NOTION_DB_ID)
 
         tasks = []
 
         for r in results.get("results", []):
             props = r.get("properties", {})
 
+            # Title
             title = "UNKNOWN TASK"
             title_prop = props.get("Task", {}).get("title", [])
             if title_prop:
                 title = title_prop[0].get("plain_text", "UNKNOWN TASK")
 
+            # Status
             status = ""
             status_obj = props.get("Status", {}).get("select")
             if status_obj:
@@ -109,14 +112,6 @@ def top_task():
 # -------------------------
 def reply_logic(text):
     text = text.lower().strip()
-
-    # 🔥 DEBUG COMMAND (NEW)
-    if text == "debug":
-        try:
-            results = notion.databases.query(database_id=NOTION_DB_ID)
-            return f"RAW NOTION:\n{results}"
-        except Exception as e:
-            return f"ERROR:\n{str(e)}"
 
     if text == "focus":
         task = top_task()
