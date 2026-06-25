@@ -38,13 +38,11 @@ DEFAULT_GIFS = [
     "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
 ]
 
-
 # -------------------------
 # JESSE STYLE
 # -------------------------
 def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Bruh, ", "Listen. "]) + text + " yo."
-
 
 # -------------------------
 # GIF SENDER
@@ -61,9 +59,8 @@ async def send_gif(update: Update, key: str):
         print("[GIF ERROR]")
         traceback.print_exc()
 
-
 # -------------------------
-# NOTION FETCH (CLEAN)
+# NOTION FETCH (FIXED FOR YOUR SCHEMA)
 # -------------------------
 def get_tasks():
     try:
@@ -74,14 +71,18 @@ def get_tasks():
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # Title
+            # -------------------------
+            # TITLE (Task → Title type)
+            # -------------------------
             title_prop = props.get("Task", {}).get("title", [])
             title = "UNKNOWN TASK"
 
             if title_prop:
-                title = title_prop[0].get("plain_text", title)
+                title = title_prop[0].get("plain_text", "UNKNOWN TASK")
 
-            # Status
+            # -------------------------
+            # STATUS (Select type)
+            # -------------------------
             status_obj = props.get("Status", {}).get("select")
             status = status_obj.get("name", "") if status_obj else ""
 
@@ -97,25 +98,21 @@ def get_tasks():
         traceback.print_exc()
         return []
 
-
 # -------------------------
-# PENDING TASKS
+# FIXED FILTER (IMPORTANT CHANGE)
 # -------------------------
-PENDING_STATES = {"pending", "to do", "todo", "in progress"}
-
 def pending_tasks():
     tasks = get_tasks()
 
+    # FIX: Notion select values are inconsistent → avoid strict matching
     return [
         t for t in tasks
-        if (t.get("status") or "") in PENDING_STATES
+        if t.get("status") != "done"
     ]
-
 
 def top_task():
     tasks = pending_tasks()
     return tasks[0]["title"] if tasks else None
-
 
 # -------------------------
 # SAVE TASK
@@ -131,7 +128,6 @@ def save_task(task):
         )
     except Exception:
         traceback.print_exc()
-
 
 # -------------------------
 # MARK DONE
@@ -159,7 +155,6 @@ def mark_done(task_name):
         traceback.print_exc()
         return False
 
-
 # -------------------------
 # LOGIC
 # -------------------------
@@ -176,18 +171,17 @@ def reply_logic(text):
             return jesse("Nothing on your plate.")
         return jesse("Top priorities:\n- " + "\n- ".join(t["title"] for t in tasks))
 
-    if text == "add ":
-        save_task(text[4:].strip())
-        return jesse("Task added.")
-
     if text == "list":
         tasks = pending_tasks()
         if not tasks:
             return jesse("No pending jobs.")
         return jesse("Backlog:\n- " + "\n- ".join(t["title"] for t in tasks))
 
-    return jesse(random.choice(["Noted.", "Alright.", "Got it.", "Say less."]))
+    if text.startswith("add "):
+        save_task(text[4:].strip())
+        return jesse("Task added.")
 
+    return jesse(random.choice(["Noted.", "Alright.", "Got it.", "Say less."]))
 
 # -------------------------
 # HANDLER
@@ -219,17 +213,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         traceback.print_exc()
 
-
 # -------------------------
 # MAIN
 # -------------------------
 def main():
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-
-    print("🔥 Jesse OS RUNNING")
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
+    app = ApplicationBuilder().token
