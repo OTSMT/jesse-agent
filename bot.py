@@ -1,7 +1,6 @@
 import os
 import random
 import traceback
-import sys
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
@@ -30,22 +29,6 @@ notion = Client(auth=NOTION_API_KEY)
 print("✅ Notion client initialized")
 
 # -------------------------
-# JESSE GIFS
-# -------------------------
-JESSE_GIFS = {
-    "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
-    "done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
-    "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
-    "default": None
-}
-
-DEFAULT_GIFS = [
-    "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
-    "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
-    "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA"
-]
-
-# -------------------------
 # JESSE PERSONALITY
 # -------------------------
 def jesse(text):
@@ -55,34 +38,20 @@ def jesse(text):
 
 
 # -------------------------
-# GIF SENDER
-# -------------------------
-async def send_gif(update: Update, key: str):
-    if not update.message:
-        return
-
-    file_id = JESSE_GIFS.get(key) or random.choice(DEFAULT_GIFS)
-
-    try:
-        if file_id:
-            await update.message.reply_animation(animation=file_id)
-    except Exception:
-        traceback.print_exc()
-
-
-# -------------------------
-# NOTION FETCH
+# TASK FETCH (FIXED: SERVER-SIDE FILTER)
 # -------------------------
 def get_tasks():
     try:
-        results = notion.databases.query(database_id=NOTION_DB_ID)
+        results = notion.databases.query(
+            database_id=NOTION_DB_ID
+        )
 
         tasks = []
 
-        for r in results["results"]:
+        for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # ---- TITLE ----
+            # TITLE
             title_prop = props.get("Task", {}).get("title", [])
             title = "UNKNOWN TASK"
 
@@ -93,18 +62,19 @@ def get_tasks():
                     or "UNKNOWN TASK"
                 )
 
-            # ---- STATUS ----
+            # STATUS (SAFE)
             status_obj = props.get("Status", {}).get("select")
-            status = (status_obj.get("name") if status_obj else "")
+            status = status_obj.get("name") if status_obj else ""
             status = (status or "").strip().lower()
 
-            print(f"TASK FOUND → {title} | STATUS → {status}")
+            print(f"TASK FOUND → {title} | STATUS → '{status}'")
 
             tasks.append({
                 "title": title,
                 "status": status
             })
 
+        print(f"TOTAL TASKS FETCHED → {len(tasks)}")
         return tasks
 
     except Exception:
@@ -114,16 +84,16 @@ def get_tasks():
 
 
 # -------------------------
-# FIXED FILTER (REAL FIX)
+# FIXED: STRICT FILTER
 # -------------------------
-PENDING_STATES = {"pending", "to do", "todo", "in progress"}
+PENDING_STATE = "pending"
 
 def pending_tasks():
     tasks = get_tasks()
 
     return [
         t for t in tasks
-        if t.get("status") in PENDING_STATES
+        if t.get("status") == PENDING_STATE
     ]
 
 
@@ -162,7 +132,7 @@ def mark_done(task_name):
             }
         )
 
-        if not results["results"]:
+        if not results.get("results"):
             return False
 
         page_id = results["results"][0]["id"]
@@ -177,6 +147,7 @@ def mark_done(task_name):
         return True
 
     except Exception:
+        print("💥 NOTION UPDATE ERROR")
         traceback.print_exc()
         return False
 
@@ -207,9 +178,6 @@ def reply_logic(text):
             return jesse("No pending jobs.")
         return jesse("Your backlog:\n- " + "\n- ".join([t["title"] for t in tasks]))
 
-    if text == "help":
-        return jesse("add <task>, done <task>, focus, today, list")
-
     return jesse(random.choice(["Noted.", "Alright.", "Got it.", "Say less.", "I'm tracking it."]))
 
 
@@ -223,26 +191,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         text = msg.text.strip().lower()
-        gif_key = "default"
+        reply = reply_logic(text)
 
-        if text.startswith("add "):
-            save_task(text[4:].strip())
-            gif_key = "add"
-            reply = jesse("Task added.")
-
-        elif text.startswith("done "):
-            ok = mark_done(text[5:].strip())
-            gif_key = "done"
-            reply = jesse("Task completed." if ok else "Couldn't find that task.")
-
-        elif text == "focus":
-            gif_key = "focus"
-            reply = reply_logic(text)
-
-        else:
-            reply = reply_logic(text)
-
-        await send_gif(update, gif_key)
         await msg.reply_text(reply)
 
     except Exception:
