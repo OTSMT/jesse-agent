@@ -51,14 +51,12 @@ DEFAULT_GIFS = [
 ]
 
 # -------------------------
-# JESSE PERSONALITY
+# JESSE STYLE
 # -------------------------
 def jesse(text):
     prefixes = ["Yo.", "Alright.", "Listen.", "Yo man,", "Bruh,"]
     suffixes = ["yo.", "for real.", "cap.", "bitch.", "yo."]
-
     return f"{random.choice(prefixes)} {text} {random.choice(suffixes)}"
-
 
 # -------------------------
 # GIF SENDER
@@ -76,9 +74,8 @@ async def send_gif(update: Update, key: str):
         print("[GIF ERROR]")
         traceback.print_exc()
 
-
 # -------------------------
-# 🔥 FIXED NOTION PARSER (ROOT FIX)
+# NOTION TASK PARSER (FIXED FOR ALL FORMATS)
 # -------------------------
 def get_tasks():
     try:
@@ -89,31 +86,38 @@ def get_tasks():
         for r in results["results"]:
             props = r.get("properties", {})
 
-            # SAFE TITLE
-            try:
-                title_prop = props.get("Task", {}).get("title", [])
-                if title_prop:
-                    title = (
-                        title_prop[0].get("plain_text")
-                        or title_prop[0].get("text", {}).get("content")
-                        or "UNKNOWN TASK"
-                    )
-                else:
-                    title = "UNKNOWN TASK"
-            except:
-                title = "UNKNOWN TASK"
+            # -------- TITLE (robust) --------
+            title = "UNKNOWN TASK"
+            task_prop = props.get("Task", {})
 
-            # SAFE STATUS
+            # title format
+            title_arr = task_prop.get("title", [])
+            if title_arr:
+                t = title_arr[0]
+                title = (
+                    t.get("plain_text")
+                    or t.get("text", {}).get("content")
+                    or title
+                )
+
+            # rich_text fallback
+            elif task_prop.get("rich_text"):
+                rt = task_prop["rich_text"]
+                if rt:
+                    title = rt[0].get("plain_text", title)
+
+            # -------- STATUS --------
             status_obj = props.get("Status", {}).get("select")
             status = status_obj.get("name") if status_obj else ""
 
-            print(f"TASK FOUND → {title} | STATUS → {status}")
+            print(f"[NOTION] {title} | {status}")
 
             tasks.append({
                 "title": title,
                 "status": status
             })
 
+        print(f"[NOTION] TOTAL TASKS: {len(tasks)}")
         return tasks
 
     except Exception:
@@ -121,23 +125,19 @@ def get_tasks():
         traceback.print_exc()
         return []
 
+# -------------------------
+# PENDING FILTER (FIXED)
+# -------------------------
+def normalize(s):
+    return "".join(c for c in str(s).lower() if c.isalnum())
 
-# -------------------------
-# 🔥 FIXED FILTER (THIS WAS YOUR MAIN BUG)
-# -------------------------
 def pending_tasks():
     tasks = get_tasks()
-
-    return [
-        t for t in tasks
-        if "pending" in (t.get("status") or "").strip().lower()
-    ]
-
+    return [t for t in tasks if "pending" in normalize(t.get("status"))]
 
 def top_task():
     tasks = pending_tasks()
     return tasks[0]["title"] if tasks else None
-
 
 # -------------------------
 # SAVE TASK
@@ -154,7 +154,6 @@ def save_task(task):
     except Exception:
         print("💥 NOTION CREATE ERROR")
         traceback.print_exc()
-
 
 # -------------------------
 # MARK DONE
@@ -176,9 +175,7 @@ def mark_done(task_name):
 
         notion.pages.update(
             page_id=page_id,
-            properties={
-                "Status": {"select": {"name": "Done"}}
-            }
+            properties={"Status": {"select": {"name": "Done"}}}
         )
 
         return True
@@ -188,9 +185,8 @@ def mark_done(task_name):
         traceback.print_exc()
         return False
 
-
 # -------------------------
-# CORE LOGIC
+# BOT LOGIC
 # -------------------------
 def reply_logic(text):
     text = text.lower().strip()
@@ -215,11 +211,7 @@ def reply_logic(text):
             return jesse("No pending jobs.")
         return jesse("Your backlog:\n- " + "\n- ".join([t["title"] for t in tasks]))
 
-    if text == "help":
-        return jesse("add <task>, done <task>, focus, today, list")
-
     return jesse(random.choice(["Noted.", "Alright.", "Got it.", "Say less.", "I'm tracking it."]))
-
 
 # -------------------------
 # HANDLER
@@ -257,23 +249,15 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("[HANDLER CRASH]")
         traceback.print_exc()
 
-
 # -------------------------
 # MAIN
 # -------------------------
 def main():
     print("🚀 Starting bot...")
-
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-
     print("🔥 Jesse OS RUNNING")
     app.run_polling()
 
-
-# -------------------------
-# ENTRY POINT
-# -------------------------
 if __name__ == "__main__":
     main()
