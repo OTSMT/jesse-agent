@@ -4,6 +4,6 @@ WORKDIR /app
 
 COPY . /app
 
-RUN pip install --no-cache-dir python-telegram-bot notion-client
+RUN pip install python-telegram-bot notion-client
 
 CMD ["python", "bot.py"]
