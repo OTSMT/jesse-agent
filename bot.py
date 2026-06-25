@@ -60,3 +60,18 @@ app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 app.run_polling()
+
+import random
+
+JESSE_FREE_REPLIES = [
+    "Got it. Added to the list, bitch.",
+    "Locked in. Future you better appreciate this.",
+    "Task saved. No excuses now.",
+    "Alright, that's handled. Keep moving.",
+    "Another mission added. Let's get it done.",
+    "Yeah yeah, I got you. Don't disappear on me, bitch."
+]
+
+
+def jesse_free_reply():
+    return random.choice(JESSE_FREE_REPLIES)
