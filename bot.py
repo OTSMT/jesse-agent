@@ -25,68 +25,46 @@ notion = Client(auth=NOTION_API_KEY)
 print("✅ Notion client initialized")
 
 # -------------------------
-# GIFS
-# -------------------------
-JESSE_GIFS = {
-    "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
-    "done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
-    "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
-}
-
-DEFAULT_GIFS = [
-    "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
-    "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
-]
-
-# -------------------------
 # STYLE
 # -------------------------
 def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Bruh, ", "Listen. "]) + text + " yo."
 
 # -------------------------
-# GIF SENDER
-# -------------------------
-async def send_gif(update: Update, key: str):
-    try:
-        if not update.message:
-            return
-
-        file_id = JESSE_GIFS.get(key) or random.choice(DEFAULT_GIFS)
-        await update.message.reply_animation(animation=file_id)
-
-    except Exception:
-        print("[GIF ERROR]")
-        traceback.print_exc()
-
-# -------------------------
-# NOTION FETCH (FIXED)
+# NOTION FETCH (FINAL DIAGNOSTIC)
 # -------------------------
 def get_tasks():
     try:
-        # 🔥 FIXED LINE
-        results = notion.query_database(database_id=NOTION_DB_ID)
+        results = notion.databases.query(
+            database_id=NOTION_DB_ID,
+            filter={}  # no filters
+        )
+
+        # 🔥 CRITICAL DEBUG OUTPUT
+        print("\n========== NOTION RAW RESPONSE ==========")
+        print("RESULT COUNT:", len(results.get("results", [])))
+        print(results)
+        print("=========================================\n")
 
         tasks = []
 
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # Title
-            title = "UNKNOWN TASK"
-            title_prop = props.get("Task", {}).get("title", [])
+            # Your confirmed column names
+            title = "NO TITLE"
+            title_prop = props.get("Task Type", {}).get("title", [])
             if title_prop:
-                title = title_prop[0].get("plain_text", "UNKNOWN TASK")
+                title = title_prop[0].get("plain_text", "NO TITLE")
 
-            # Status
             status = ""
-            status_obj = props.get("Status", {}).get("select")
+            status_obj = props.get("Status Type", {}).get("select", {})
             if status_obj:
                 status = status_obj.get("name", "")
 
             tasks.append({
                 "title": title,
-                "status": status.strip().lower()
+                "status": status.lower().strip()
             })
 
         return tasks
@@ -117,12 +95,6 @@ def reply_logic(text):
         task = top_task()
         return jesse(f"Do this → {task}") if task else jesse("No tasks.")
 
-    if text == "today":
-        tasks = pending_tasks()[:3]
-        if not tasks:
-            return jesse("Nothing on your plate.")
-        return jesse("Top priorities:\n- " + "\n- ".join(t["title"] for t in tasks))
-
     if text == "list":
         tasks = pending_tasks()
         if not tasks:
@@ -133,8 +105,8 @@ def reply_logic(text):
         notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
-                "Task": {"title": [{"text": {"content": text[4:]}}]},
-                "Status": {"select": {"name": "Pending"}},
+                "Task Type": {"title": [{"text": {"content": text[4:]}}]},
+                "Status Type": {"select": {"name": "Pending"}},
             },
         )
         return jesse("Task added.")
@@ -152,18 +124,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text = msg.text.strip()
 
-        gif_key = "default"
-
-        if text.lower().startswith("add "):
-            gif_key = "add"
-        elif text.lower() == "focus":
-            gif_key = "focus"
-        elif text.lower().startswith("done "):
-            gif_key = "done"
-
         reply = reply_logic(text)
 
-        await send_gif(update, gif_key)
         await msg.reply_text(reply)
 
     except Exception:
