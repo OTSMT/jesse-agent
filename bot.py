@@ -33,7 +33,7 @@ def jesse_reply(text):
         return res.choices[0].message.content
 
     except Exception:
-    return jesse_free_reply(text)
+        return jesse_free_reply(text)
 
 # SAVE TASK TO NOTION
 def save_task(task):
