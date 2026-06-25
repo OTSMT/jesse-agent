@@ -53,11 +53,16 @@ def save_task(task):
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    # simple task detection
     if text.lower().startswith("add "):
         task = text[4:]
-        save_task(task)
-        reply = f"Got it. Added '{task}' to the list. Don't slack, bitch."
+
+        try:
+            save_task(task)
+            reply = f"Got it. Added '{task}' to the list, bitch."
+        except Exception as e:
+            print(f"Notion error: {e}")
+            reply = f"I got the task, bitch, but my Notion brain is acting up. I'll fix it."
+
     else:
         reply = jesse_reply(text)
 
