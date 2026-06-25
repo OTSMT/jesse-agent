@@ -38,16 +38,14 @@ DEFAULT_GIFS = [
     "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
 ]
 
-
 # -------------------------
-# JESSE
+# JESSE STYLE
 # -------------------------
 def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Bruh, ", "Listen. "]) + text + " yo."
 
-
 # -------------------------
-# GIF SENDER (RESTORED)
+# GIF SENDER
 # -------------------------
 async def send_gif(update: Update, key: str):
     try:
@@ -61,54 +59,35 @@ async def send_gif(update: Update, key: str):
         print("[GIF ERROR]")
         traceback.print_exc()
 
-
+# -------------------------
+# NOTION FETCH (SAFE + RELIABLE)
 # -------------------------
 def get_tasks():
     try:
-        print("\n========================")
-        print("NOTION DEBUG START")
-        print("DB ID:", NOTION_DB_ID)
-
         results = notion.databases.query(database_id=NOTION_DB_ID)
-
-        raw_results = results.get("results", [])
-
-        print("RAW RESULTS COUNT:", len(raw_results))
 
         tasks = []
 
-        for i, r in enumerate(raw_results):
-            print(f"\n--- PAGE {i + 1} ---")
-
+        for r in results.get("results", []):
             props = r.get("properties", {})
 
-            print("PROPERTY KEYS:")
-            print(list(props.keys()))
-
+            # TITLE (safe fallback)
             title_prop = props.get("Task", {}).get("title", [])
-
             title = "UNKNOWN TASK"
+
             if title_prop:
-                title = title_prop[0].get("plain_text", "UNKNOWN TASK")
+                title = title_prop[0].get("plain_text", title)
 
-            status_prop = props.get("Status", {})
-            status_obj = status_prop.get("select")
-
-            status = ""
-            if status_obj:
-                status = status_obj.get("name", "")
-
-            print("TITLE :", repr(title))
-            print("STATUS:", repr(status))
+            # STATUS (safe fallback)
+            status_obj = props.get("Status", {}).get("select")
+            status = status_obj.get("name", "") if status_obj else ""
 
             tasks.append({
                 "title": title,
                 "status": status.strip().lower()
             })
 
-        print("\nFINAL TASKS:", tasks)
-        print("========================\n")
-
+        print(f"NOTION TASKS LOADED: {len(tasks)}")
         return tasks
 
     except Exception:
@@ -116,33 +95,28 @@ def get_tasks():
         traceback.print_exc()
         return []
 
-
 # -------------------------
-# FIXED FILTER (REALISTIC)
+# FILTER
 # -------------------------
 PENDING_STATES = {"pending", "to do", "todo", "in progress"}
 
 def pending_tasks():
     tasks = get_tasks()
 
-    print("TASKS RECEIVED:", tasks)
-
     filtered = [
         t for t in tasks
         if (t.get("status") or "").strip().lower() in PENDING_STATES
     ]
 
-    print("FILTERED TASKS:", filtered)
-
+    print(f"PENDING TASKS: {len(filtered)}")
     return filtered
 
 def top_task():
     tasks = pending_tasks()
     return tasks[0]["title"] if tasks else None
 
-
 # -------------------------
-# SAVE
+# SAVE TASK
 # -------------------------
 def save_task(task):
     try:
@@ -156,9 +130,8 @@ def save_task(task):
     except Exception:
         traceback.print_exc()
 
-
 # -------------------------
-# DONE
+# MARK DONE
 # -------------------------
 def mark_done(task_name):
     try:
@@ -183,7 +156,6 @@ def mark_done(task_name):
         traceback.print_exc()
         return False
 
-
 # -------------------------
 # LOGIC
 # -------------------------
@@ -206,9 +178,8 @@ def reply_logic(text):
 
     return jesse("Noted.")
 
-
 # -------------------------
-# HANDLER (FIXED GIF FLOW)
+# HANDLER
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -234,7 +205,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         traceback.print_exc()
 
-
 # -------------------------
 # MAIN
 # -------------------------
@@ -244,7 +214,6 @@ def main():
 
     print("🔥 Jesse OS RUNNING")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
