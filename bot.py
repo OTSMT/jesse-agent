@@ -41,17 +41,25 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION FETCH (STABLE + SIMPLE)
+# NOTION FETCH (DEBUG SAFE)
 # -------------------------
 def get_tasks():
     try:
-        results = notion.databases.query(database_id=NOTION_DB_ID)
+        print("→ Calling Notion...")
+
+        results = notion.databases.query(
+            database_id=NOTION_DB_ID,
+            page_size=100
+        )
+
+        print("→ Notion response received")
 
         tasks = []
 
         for r in results.get("results", []):
             props = r.get("properties", {})
 
+            # ⚠️ YOUR DB FIELDS
             title_prop = props.get("Task Type", {}).get("title", [])
             title = title_prop[0].get("plain_text") if title_prop else "UNKNOWN TASK"
 
@@ -63,39 +71,44 @@ def get_tasks():
                 "status": status.lower().strip()
             })
 
-        print("TASK COUNT:", len(tasks))
+        print(f"→ TASK COUNT: {len(tasks)}")
         return tasks
 
-    except Exception:
-        print("NOTION ERROR")
+    except Exception as e:
+        print("NOTION ERROR OCCURRED")
+        print(repr(e))
         traceback.print_exc()
         return []
 
 # -------------------------
-# FILTER (NO EDGE CASES)
+# FILTER
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
-    return [t for t in tasks if t["status"] != "done"]
-
-# -------------------------
-# ACTIONS
-# -------------------------
-def save_task(task):
-    notion.pages.create(
-        parent={"database_id": NOTION_DB_ID},
-        properties={
-            "Task Type": {"title": [{"text": {"content": task}}]},
-            "Status Type": {"select": {"name": "Pending"}},
-        },
-    )
+    return [t for t in tasks if (t.get("status") or "") != "done"]
 
 def top_task():
     tasks = pending_tasks()
     return tasks[0]["title"] if tasks else None
 
 # -------------------------
-# GIF SENDER (SAFE)
+# SAVE TASK
+# -------------------------
+def save_task(task):
+    try:
+        notion.pages.create(
+            parent={"database_id": NOTION_DB_ID},
+            properties={
+                "Task Type": {"title": [{"text": {"content": task}}]},
+                "Status Type": {"select": {"name": "Pending"}},
+            },
+        )
+    except Exception:
+        print("CREATE ERROR")
+        traceback.print_exc()
+
+# -------------------------
+# GIF SENDER
 # -------------------------
 async def send_gif(update: Update, key: str):
     try:
@@ -120,7 +133,7 @@ def reply_logic(text):
     if text == "list":
         tasks = pending_tasks()
         if not tasks:
-            return jesse("No tasks.")
+            return jesse("No tasks found.")
         return jesse("Backlog:\n- " + "\n- ".join(t["title"] for t in tasks))
 
     if text == "focus":
