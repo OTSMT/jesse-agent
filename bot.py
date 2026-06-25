@@ -26,13 +26,8 @@ if not NOTION_DB_ID:
 # -------------------------
 # NOTION CLIENT
 # -------------------------
-try:
-    notion = Client(auth=NOTION_API_KEY)
-    print("✅ Notion client initialized")
-except Exception:
-    print("💥 NOTION INIT FAILED")
-    traceback.print_exc()
-    sys.exit(1)
+notion = Client(auth=NOTION_API_KEY)
+print("✅ Notion client initialized")
 
 # -------------------------
 # JESSE GIFS
@@ -56,7 +51,6 @@ DEFAULT_GIFS = [
 def jesse(text):
     prefixes = ["Yo.", "Alright.", "Listen.", "Yo man,", "Bruh,"]
     suffixes = ["yo.", "for real.", "cap.", "bitch.", "yo."]
-
     return f"{random.choice(prefixes)} {text} {random.choice(suffixes)}"
 
 
@@ -73,12 +67,11 @@ async def send_gif(update: Update, key: str):
         if file_id:
             await update.message.reply_animation(animation=file_id)
     except Exception:
-        print("[GIF ERROR]")
         traceback.print_exc()
 
 
 # -------------------------
-# 🔥 FIXED NOTION PARSER (ROOT FIX)
+# NOTION FETCH
 # -------------------------
 def get_tasks():
     try:
@@ -89,23 +82,21 @@ def get_tasks():
         for r in results["results"]:
             props = r.get("properties", {})
 
-            # SAFE TITLE
-            try:
-                title_prop = props.get("Task", {}).get("title", [])
-                if title_prop:
-                    title = (
-                        title_prop[0].get("plain_text")
-                        or title_prop[0].get("text", {}).get("content")
-                        or "UNKNOWN TASK"
-                    )
-                else:
-                    title = "UNKNOWN TASK"
-            except:
-                title = "UNKNOWN TASK"
+            # ---- TITLE ----
+            title_prop = props.get("Task", {}).get("title", [])
+            title = "UNKNOWN TASK"
 
-            # SAFE STATUS
+            if title_prop:
+                title = (
+                    title_prop[0].get("plain_text")
+                    or title_prop[0].get("text", {}).get("content")
+                    or "UNKNOWN TASK"
+                )
+
+            # ---- STATUS ----
             status_obj = props.get("Status", {}).get("select")
-            status = status_obj.get("name") if status_obj else ""
+            status = (status_obj.get("name") if status_obj else "")
+            status = (status or "").strip().lower()
 
             print(f"TASK FOUND → {title} | STATUS → {status}")
 
@@ -123,14 +114,16 @@ def get_tasks():
 
 
 # -------------------------
-# 🔥 FIXED FILTER (THIS WAS YOUR MAIN BUG)
+# FIXED FILTER (REAL FIX)
 # -------------------------
+PENDING_STATES = {"pending", "to do", "todo", "in progress"}
+
 def pending_tasks():
     tasks = get_tasks()
 
     return [
         t for t in tasks
-        if "pending" in (t.get("status") or "").strip().lower()
+        if t.get("status") in PENDING_STATES
     ]
 
 
@@ -184,7 +177,6 @@ def mark_done(task_name):
         return True
 
     except Exception:
-        print("💥 NOTION UPDATE ERROR")
         traceback.print_exc()
         return False
 
@@ -230,20 +222,20 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not msg or not msg.text:
             return
 
-        text = msg.text.strip()
+        text = msg.text.strip().lower()
         gif_key = "default"
 
-        if text.lower().startswith("add "):
+        if text.startswith("add "):
             save_task(text[4:].strip())
             gif_key = "add"
             reply = jesse("Task added.")
 
-        elif text.lower().startswith("done "):
+        elif text.startswith("done "):
             ok = mark_done(text[5:].strip())
             gif_key = "done"
             reply = jesse("Task completed." if ok else "Couldn't find that task.")
 
-        elif text.lower() == "focus":
+        elif text == "focus":
             gif_key = "focus"
             reply = reply_logic(text)
 
@@ -265,15 +257,11 @@ def main():
     print("🚀 Starting bot...")
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
     print("🔥 Jesse OS RUNNING")
     app.run_polling()
 
 
-# -------------------------
-# ENTRY POINT
-# -------------------------
 if __name__ == "__main__":
     main()
