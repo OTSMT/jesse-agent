@@ -24,27 +24,24 @@ if not NOTION_DB_ID:
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-
 # JESSE GIFS
-
 # -------------------------
 
 JESSE_GIFS = {
-"add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
-"done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
-"focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
-"default": "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
+    "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
+    "done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
+    "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
+    "default": "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
 }
 
 ALL_GIFS = [
-"CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
-"CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
-"CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
-"CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
-"CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
-"CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
+    "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
+    "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
+    "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
+    "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
+    "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
+    "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
 ]
-
 
 # -------------------------
 # JESSE PERSONALITY
@@ -56,30 +53,26 @@ def jesse(text):
     return f"{random.choice(prefixes)} {text}{random.choice(suffixes)}"
 
 # -------------------------
-# SAFE GIF SENDER (FIXED)
+# SAFE GIF SENDER
 # -------------------------
 
 async def send_gif(update: Update, key: str):
 
-```
-if not update.message:
-    return
+    if not update.message:
+        return
 
-file_id = JESSE_GIFS.get(key)
+    file_id = JESSE_GIFS.get(key)
 
-# Fallback to random GIF if key doesn't exist
-if not file_id:
-    file_id = random.choice(ALL_GIFS)
+    if not file_id:
+        file_id = random.choice(ALL_GIFS)
 
-try:
-    await update.message.reply_animation(animation=file_id)
-    print(f"[GIF SENT] {key}")
+    try:
+        await update.message.reply_animation(animation=file_id)
+        print(f"[GIF SENT] {key}")
 
-except Exception:
-    print("[GIF SEND FAILED]")
-    traceback.print_exc()
-```
-
+    except Exception:
+        print("[GIF SEND FAILED]")
+        traceback.print_exc()
 
 # -------------------------
 # NOTION CORE
@@ -87,7 +80,6 @@ except Exception:
 
 def get_tasks():
     results = notion.databases.query(database_id=NOTION_DB_ID)
-
     tasks = []
 
     for r in results["results"]:
@@ -95,10 +87,7 @@ def get_tasks():
             title = r["properties"]["Task"]["title"][0]["text"]["content"]
             status = r["properties"]["Status"]["select"]["name"]
 
-            tasks.append({
-                "title": title,
-                "status": status
-            })
+            tasks.append({"title": title, "status": status})
         except:
             continue
 
@@ -183,7 +172,7 @@ def jesse_reply(text):
     ]))
 
 # -------------------------
-# DEBUG (FIXED + RELIABLE)
+# DEBUG
 # -------------------------
 
 async def gif_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -212,7 +201,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = update.message.text.strip()
-
     gif_key = "default"
 
     if text.lower().startswith("add "):
@@ -235,7 +223,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply = jesse("Task completed.")
             else:
                 reply = jesse("Couldn't find that task.")
-
         except:
             traceback.print_exc()
             reply = jesse("Update failed.")
@@ -256,10 +243,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-# IMPORTANT: reliable capture
 app.add_handler(MessageHandler(filters.ALL, gif_debug))
-
-# main bot
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 print("🔥 Jesse OS v6.1 FIXED MODE RUNNING")
