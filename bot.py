@@ -102,4 +102,5 @@ def jesse_free_reply(text):
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
+print("🔥 Jesse started polling")
 app.run_polling()
