@@ -1,7 +1,6 @@
 import os
 import random
 import traceback
-import sys
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
@@ -10,29 +9,19 @@ from notion_client import Client
 # -------------------------
 # ENV
 # -------------------------
-print("BOT FILE LOADED")
+print("BOT STARTED")
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 
-if not TELEGRAM_TOKEN:
-    raise ValueError("Missing TELEGRAM_TOKEN")
-if not NOTION_API_KEY:
-    raise ValueError("Missing NOTION_API_KEY")
-if not NOTION_DB_ID:
-    raise ValueError("Missing NOTION_DB_ID")
+if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
+    raise ValueError("Missing env vars")
 
 # -------------------------
-# NOTION CLIENT
+# NOTION
 # -------------------------
-try:
-    notion = Client(auth=NOTION_API_KEY)
-    print("Notion client initialized")
-except Exception:
-    print("NOTION INIT FAILED")
-    traceback.print_exc()
-    sys.exit(1)
+notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
 # GIFS
@@ -48,16 +37,11 @@ DEFAULT_GIFS = [
     "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
 ]
 
-# -------------------------
-# PERSONALITY
-# -------------------------
 def jesse(text):
-    prefixes = ["Yo.", "Alright.", "Listen.", "Yo man,", "Bruh,"]
-    suffixes = ["yo.", "for real.", "cap.", "bitch.", "yo."]
-    return f"{random.choice(prefixes)} {text} {random.choice(suffixes)}"
+    return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION FETCH (FIXED)
+# NOTION FETCH (STABLE + SIMPLE)
 # -------------------------
 def get_tasks():
     try:
@@ -68,85 +52,64 @@ def get_tasks():
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # ✅ FIXED: matches your actual Notion DB
             title_prop = props.get("Task Type", {}).get("title", [])
-            title = "UNKNOWN TASK"
-            if title_prop:
-                title = title_prop[0].get("plain_text", "UNKNOWN TASK")
+            title = title_prop[0].get("plain_text") if title_prop else "UNKNOWN TASK"
 
             status_obj = props.get("Status Type", {}).get("select")
             status = status_obj.get("name") if status_obj else ""
 
             tasks.append({
                 "title": title,
-                "status": status.strip().lower()
+                "status": status.lower().strip()
             })
 
+        print("TASK COUNT:", len(tasks))
         return tasks
 
     except Exception:
-        print("NOTION QUERY ERROR")
+        print("NOTION ERROR")
         traceback.print_exc()
         return []
 
 # -------------------------
-# FILTER
+# FILTER (NO EDGE CASES)
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
-    return [t for t in tasks if (t.get("status") or "") != "done"]
+    return [t for t in tasks if t["status"] != "done"]
+
+# -------------------------
+# ACTIONS
+# -------------------------
+def save_task(task):
+    notion.pages.create(
+        parent={"database_id": NOTION_DB_ID},
+        properties={
+            "Task Type": {"title": [{"text": {"content": task}}]},
+            "Status Type": {"select": {"name": "Pending"}},
+        },
+    )
 
 def top_task():
     tasks = pending_tasks()
     return tasks[0]["title"] if tasks else None
 
 # -------------------------
-# SAVE TASK
+# GIF SENDER (SAFE)
 # -------------------------
-def save_task(task):
+async def send_gif(update: Update, key: str):
     try:
-        notion.pages.create(
-            parent={"database_id": NOTION_DB_ID},
-            properties={
-                "Task Type": {"title": [{"text": {"content": task}}]},
-                "Status Type": {"select": {"name": "Pending"}},
-            },
-        )
-    except Exception:
-        print("NOTION CREATE ERROR")
-        traceback.print_exc()
+        if not update.message:
+            return
 
-# -------------------------
-# MARK DONE
-# -------------------------
-def mark_done(task_name):
-    try:
-        results = notion.databases.query(
-            database_id=NOTION_DB_ID,
-            filter={
-                "property": "Task Type",
-                "title": {"contains": task_name}
-            }
-        )
+        file_id = JESSE_GIFS.get(key) or random.choice(DEFAULT_GIFS)
 
-        if not results.get("results"):
-            return False
-
-        page_id = results["results"][0]["id"]
-
-        notion.pages.update(
-            page_id=page_id,
-            properties={
-                "Status Type": {"select": {"name": "Done"}}
-            }
-        )
-
-        return True
+        if file_id:
+            await update.message.reply_animation(animation=file_id)
 
     except Exception:
-        print("NOTION UPDATE ERROR")
+        print("GIF ERROR")
         traceback.print_exc()
-        return False
 
 # -------------------------
 # LOGIC
@@ -154,27 +117,21 @@ def mark_done(task_name):
 def reply_logic(text):
     text = text.lower().strip()
 
+    if text == "list":
+        tasks = pending_tasks()
+        if not tasks:
+            return jesse("No tasks.")
+        return jesse("Backlog:\n- " + "\n- ".join(t["title"] for t in tasks))
+
     if text == "focus":
         task = top_task()
-        return jesse(f"Do this right now → {task}") if task else jesse("No tasks.")
-
-    if text == "today":
-        tasks = pending_tasks()[:3]
-        if not tasks:
-            return jesse("Nothing on your plate.")
-        return jesse("Top priorities:\n- " + "\n- ".join([t["title"] for t in tasks]))
+        return jesse(f"Do this → {task}") if task else jesse("No tasks.")
 
     if text.startswith("add "):
         save_task(text[4:].strip())
         return jesse("Task added.")
 
-    if text == "list":
-        tasks = pending_tasks()
-        if not tasks:
-            return jesse("No pending jobs.")
-        return jesse("Your backlog:\n- " + "\n- ".join([t["title"] for t in tasks]))
-
-    return jesse(random.choice(["Noted.", "Alright.", "Got it.", "Say less.", "I'm tracking it."]))
+    return jesse("Noted.")
 
 # -------------------------
 # HANDLER
@@ -187,7 +144,15 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text = msg.text.strip()
 
+        gif_key = None
+        if text.startswith("add "):
+            gif_key = "add"
+        elif text == "focus":
+            gif_key = "focus"
+
         reply = reply_logic(text)
+
+        await send_gif(update, gif_key)
         await msg.reply_text(reply)
 
     except Exception:
@@ -198,15 +163,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # MAIN
 # -------------------------
 def main():
-    print("Jesse OS RUNNING")
-
+    print("RUNNING BOT")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-
     app.run_polling()
 
-# -------------------------
-# ENTRY
-# -------------------------
 if __name__ == "__main__":
     main()
