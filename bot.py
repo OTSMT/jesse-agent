@@ -24,18 +24,27 @@ if not NOTION_DB_ID:
     raise ValueError("Missing NOTION_DB_ID")
 
 # -------------------------
-# NOTION CLIENT
+# NOTION
 # -------------------------
-try:
-    notion = Client(auth=NOTION_API_KEY)
-    print("Notion client initialized")
-except Exception:
-    print("NOTION INIT FAILED")
-    traceback.print_exc()
-    sys.exit(1)
+notion = Client(auth=NOTION_API_KEY)
+print("Notion client initialized")
 
 # -------------------------
-# JESSE PERSONALITY
+# GIFS
+# -------------------------
+JESSE_GIFS = {
+    "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
+    "done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
+    "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
+}
+
+DEFAULT_GIFS = [
+    "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
+    "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
+]
+
+# -------------------------
+# PERSONALITY
 # -------------------------
 def jesse(text):
     prefixes = ["Yo.", "Alright.", "Listen.", "Yo man,", "Bruh,"]
@@ -43,31 +52,46 @@ def jesse(text):
     return f"{random.choice(prefixes)} {text} {random.choice(suffixes)}"
 
 # -------------------------
-# NOTION FETCH (FIXED)
+# GIF SENDER (STABLE)
+# -------------------------
+async def send_gif(update: Update, key: str):
+    try:
+        if not update.message:
+            return
+
+        file_id = JESSE_GIFS.get(key)
+        if not file_id:
+            file_id = random.choice(DEFAULT_GIFS)
+
+        if file_id:
+            try:
+                await update.message.reply_animation(animation=file_id)
+            except Exception:
+                print("[GIF WARNING] failed to send gif")
+
+    except Exception:
+        print("[GIF ERROR]")
+        traceback.print_exc()
+
+# -------------------------
+# NOTION FETCH (FIXED & SAFE)
 # -------------------------
 def get_tasks():
     try:
-        results = notion.request(
-            "post",
-            f"https://api.notion.com/v1/databases/{NOTION_DB_ID}/query",
-            headers={
-                "Authorization": f"Bearer {NOTION_API_KEY}",
-                "Notion-Version": "2022-06-28",
-                "Content-Type": "application/json",
-            },
-            json={}
-        )
+        results = notion.databases.query(database_id=NOTION_DB_ID)
 
         tasks = []
 
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # TITLE
+            # SAFE TITLE (matches your DB: "Task")
             title_prop = props.get("Task", {}).get("title", [])
-            title = title_prop[0].get("plain_text") if title_prop else "UNKNOWN TASK"
+            title = "UNKNOWN TASK"
+            if title_prop:
+                title = title_prop[0].get("plain_text", "UNKNOWN TASK")
 
-            # STATUS
+            # SAFE STATUS (matches your DB: "Status")
             status_obj = props.get("Status", {}).get("select")
             status = status_obj.get("name") if status_obj else ""
 
@@ -88,10 +112,7 @@ def get_tasks():
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
-    return [
-        t for t in tasks
-        if (t.get("status") or "").strip().lower() != "done"
-    ]
+    return [t for t in tasks if (t.get("status") or "") != "done"]
 
 def top_task():
     tasks = pending_tasks()
@@ -118,21 +139,11 @@ def save_task(task):
 # -------------------------
 def mark_done(task_name):
     try:
-        results = notion.request(
-            "post",
-            f"https://api.notion.com/v1/databases/{NOTION_DB_ID}/query",
-            headers={
-                "Authorization": f"Bearer {NOTION_API_KEY}",
-                "Notion-Version": "2022-06-28",
-                "Content-Type": "application/json",
-            },
-            json={
-                "filter": {
-                    "property": "Task",
-                    "title": {
-                        "contains": task_name
-                    }
-                }
+        results = notion.databases.query(
+            database_id=NOTION_DB_ID,
+            filter={
+                "property": "Task",
+                "title": {"contains": task_name}
             }
         )
 
@@ -196,8 +207,18 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         text = msg.text.strip()
+
+        gif_key = None
+        if text.lower().startswith("add "):
+            gif_key = "add"
+        elif text.lower().startswith("done "):
+            gif_key = "done"
+        elif text.lower() == "focus":
+            gif_key = "focus"
+
         reply = reply_logic(text)
 
+        await send_gif(update, gif_key)
         await msg.reply_text(reply)
 
     except Exception:
