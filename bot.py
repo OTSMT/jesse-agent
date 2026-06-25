@@ -39,7 +39,7 @@ DEFAULT_GIFS = [
 ]
 
 # -------------------------
-# JESSE STYLE
+# STYLE
 # -------------------------
 def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Bruh, ", "Listen. "]) + text + " yo."
@@ -60,31 +60,40 @@ async def send_gif(update: Update, key: str):
         traceback.print_exc()
 
 # -------------------------
-# NOTION FETCH
+# NOTION FETCH (DEBUG VERSION - FINAL DIAGNOSTIC)
 # -------------------------
 def get_tasks():
     try:
         results = notion.databases.query(database_id=NOTION_DB_ID)
+
+        # 🔥 IMPORTANT DEBUG OUTPUT
+        print("\n========== NOTION RAW RESPONSE ==========")
+        print(results)
+        print("=========================================\n")
 
         tasks = []
 
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            title_prop = props.get("Task", {}).get("title", [])
+            # Title
             title = "UNKNOWN TASK"
-
+            title_prop = props.get("Task", {}).get("title", [])
             if title_prop:
-                title = title_prop[0].get("plain_text", "UNKNOWN TASK")
+                title = title_prop[0].get("plain_text", title)
 
+            # Status
+            status = ""
             status_obj = props.get("Status", {}).get("select")
-            status = status_obj.get("name", "") if status_obj else ""
+            if status_obj:
+                status = status_obj.get("name", "")
 
             tasks.append({
                 "title": title,
                 "status": status.strip().lower()
             })
 
+        print(f"PARSED TASKS COUNT: {len(tasks)}")
         return tasks
 
     except Exception:
@@ -97,52 +106,21 @@ def get_tasks():
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
-    return [t for t in tasks if t.get("status") != "done"]
+
+    print("TASKS FROM NOTION:", tasks)
+
+    filtered = [
+        t for t in tasks
+        if t.get("status") != "done"
+    ]
+
+    print("PENDING TASKS:", filtered)
+
+    return filtered
 
 def top_task():
     tasks = pending_tasks()
     return tasks[0]["title"] if tasks else None
-
-# -------------------------
-# SAVE TASK
-# -------------------------
-def save_task(task):
-    try:
-        notion.pages.create(
-            parent={"database_id": NOTION_DB_ID},
-            properties={
-                "Task": {"title": [{"text": {"content": task}}]},
-                "Status": {"select": {"name": "Pending"}},
-            },
-        )
-    except Exception:
-        traceback.print_exc()
-
-# -------------------------
-# MARK DONE
-# -------------------------
-def mark_done(task_name):
-    try:
-        results = notion.databases.query(
-            database_id=NOTION_DB_ID,
-            filter={"property": "Task", "title": {"contains": task_name}}
-        )
-
-        if not results.get("results"):
-            return False
-
-        page_id = results["results"][0]["id"]
-
-        notion.pages.update(
-            page_id=page_id,
-            properties={"Status": {"select": {"name": "Done"}}}
-        )
-
-        return True
-
-    except Exception:
-        traceback.print_exc()
-        return False
 
 # -------------------------
 # LOGIC
@@ -167,13 +145,19 @@ def reply_logic(text):
         return jesse("Backlog:\n- " + "\n- ".join(t["title"] for t in tasks))
 
     if text.startswith("add "):
-        save_task(text[4:].strip())
+        notion.pages.create(
+            parent={"database_id": NOTION_DB_ID},
+            properties={
+                "Task": {"title": [{"text": {"content": text[4:]}}]},
+                "Status": {"select": {"name": "Pending"}},
+            },
+        )
         return jesse("Task added.")
 
-    return jesse(random.choice(["Noted.", "Alright.", "Got it.", "Say less."]))
+    return jesse("Noted.")
 
 # -------------------------
-# HANDLER (FIXED SAFETY WRAPPER)
+# HANDLER
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -181,32 +165,20 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not msg or not msg.text:
             return
 
-        text = msg.text.strip().lower()
+        text = msg.text.strip()
 
         gif_key = "default"
 
-        try:
-            if text.startswith("add "):
-                save_task(text[4:].strip())
-                gif_key = "add"
-            elif text == "focus":
-                gif_key = "focus"
-            elif text.startswith("done "):
-                mark_done(text[5:].strip())
-                gif_key = "done"
+        if text.lower().startswith("add "):
+            gif_key = "add"
+        elif text.lower() == "focus":
+            gif_key = "focus"
+        elif text.lower().startswith("done "):
+            gif_key = "done"
 
-            reply = reply_logic(text)
+        reply = reply_logic(text)
 
-        except Exception:
-            print("💥 LOGIC ERROR")
-            traceback.print_exc()
-            reply = "Something broke in logic."
-
-        try:
-            await send_gif(update, gif_key)
-        except Exception:
-            print("💥 GIF ERROR")
-
+        await send_gif(update, gif_key)
         await msg.reply_text(reply)
 
     except Exception:
