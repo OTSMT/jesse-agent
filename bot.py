@@ -60,7 +60,7 @@ async def send_gif(update: Update, key: str):
         traceback.print_exc()
 
 # -------------------------
-# NOTION FETCH (FIXED FOR YOUR SCHEMA)
+# NOTION FETCH
 # -------------------------
 def get_tasks():
     try:
@@ -71,18 +71,12 @@ def get_tasks():
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # -------------------------
-            # TITLE (Task → Title type)
-            # -------------------------
             title_prop = props.get("Task", {}).get("title", [])
             title = "UNKNOWN TASK"
 
             if title_prop:
                 title = title_prop[0].get("plain_text", "UNKNOWN TASK")
 
-            # -------------------------
-            # STATUS (Select type)
-            # -------------------------
             status_obj = props.get("Status", {}).get("select")
             status = status_obj.get("name", "") if status_obj else ""
 
@@ -99,16 +93,11 @@ def get_tasks():
         return []
 
 # -------------------------
-# FIXED FILTER (IMPORTANT CHANGE)
+# FILTER
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
-
-    # FIX: Notion select values are inconsistent → avoid strict matching
-    return [
-        t for t in tasks
-        if t.get("status") != "done"
-    ]
+    return [t for t in tasks if t.get("status") != "done"]
 
 def top_task():
     tasks = pending_tasks()
@@ -184,7 +173,7 @@ def reply_logic(text):
     return jesse(random.choice(["Noted.", "Alright.", "Got it.", "Say less."]))
 
 # -------------------------
-# HANDLER
+# HANDLER (FIXED SAFETY WRAPPER)
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -192,29 +181,47 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not msg or not msg.text:
             return
 
-        text = msg.text.strip()
+        text = msg.text.strip().lower()
 
         gif_key = "default"
 
-        if text.lower().startswith("add "):
-            save_task(text[4:].strip())
-            gif_key = "add"
-        elif text.lower() == "focus":
-            gif_key = "focus"
-        elif text.lower().startswith("done "):
-            mark_done(text[5:].strip())
-            gif_key = "done"
+        try:
+            if text.startswith("add "):
+                save_task(text[4:].strip())
+                gif_key = "add"
+            elif text == "focus":
+                gif_key = "focus"
+            elif text.startswith("done "):
+                mark_done(text[5:].strip())
+                gif_key = "done"
 
-        reply = reply_logic(text)
+            reply = reply_logic(text)
 
-        await send_gif(update, gif_key)
+        except Exception:
+            print("💥 LOGIC ERROR")
+            traceback.print_exc()
+            reply = "Something broke in logic."
+
+        try:
+            await send_gif(update, gif_key)
+        except Exception:
+            print("💥 GIF ERROR")
+
         await msg.reply_text(reply)
 
     except Exception:
+        print("💥 HANDLER CRASH")
         traceback.print_exc()
 
 # -------------------------
 # MAIN
 # -------------------------
 def main():
-    app = ApplicationBuilder().token
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+    print("🔥 Jesse OS RUNNING")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
