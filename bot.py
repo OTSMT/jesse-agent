@@ -1,6 +1,8 @@
 import os
 import random
 import traceback
+import sys
+import time
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
@@ -34,7 +36,6 @@ JESSE_GIFS = {
     "default": None
 }
 
-# Extra GIF pool (used when no key match)
 DEFAULT_GIFS = [
     "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
     "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
@@ -42,7 +43,7 @@ DEFAULT_GIFS = [
 ]
 
 # -------------------------
-# JESSE PERSONALITY
+# PERSONALITY
 # -------------------------
 
 def jesse(text):
@@ -51,7 +52,7 @@ def jesse(text):
     return f"{random.choice(prefixes)} {text}{random.choice(suffixes)}"
 
 # -------------------------
-# SAFE GIF SENDER
+# GIF SENDER (SAFE)
 # -------------------------
 
 async def send_gif(update: Update, key: str):
@@ -62,19 +63,17 @@ async def send_gif(update: Update, key: str):
     file_id = JESSE_GIFS.get(key) or random.choice(DEFAULT_GIFS)
 
     if not file_id:
-        print(f"[GIF MISSING] {key}")
         return
 
     try:
         await update.message.reply_animation(animation=file_id)
         print(f"[GIF SENT] {key}")
-
     except Exception:
-        print("[GIF SEND FAILED]")
+        print("[GIF ERROR]")
         traceback.print_exc()
 
 # -------------------------
-# NOTION CORE
+# NOTION
 # -------------------------
 
 def get_tasks():
@@ -87,10 +86,7 @@ def get_tasks():
             title = r["properties"]["Task"]["title"][0]["text"]["content"]
             status = r["properties"]["Status"]["select"]["name"]
 
-            tasks.append({
-                "title": title,
-                "status": status
-            })
+            tasks.append({"title": title, "status": status})
         except:
             continue
 
@@ -138,7 +134,7 @@ def mark_done(task_name):
     return True
 
 # -------------------------
-# JESSE BRAIN
+# BRAIN
 # -------------------------
 
 def jesse_reply(text):
@@ -175,23 +171,17 @@ def jesse_reply(text):
     ]))
 
 # -------------------------
-# DEBUG
+# DEBUG GIF LOGGER
 # -------------------------
 
 async def gif_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     try:
         msg = update.message
-        if not msg:
-            return
-
-        if msg.animation:
+        if msg and msg.animation:
             print("\n========== GIF ==========")
             print(msg.animation.file_id)
             print("=========================\n")
-
-    except Exception:
-        print("[DEBUG ERROR]")
+    except:
         traceback.print_exc()
 
 # -------------------------
@@ -200,25 +190,26 @@ async def gif_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not update.message or not update.message.text:
-        return
+    try:
+        msg = update.message
+        if not msg:
+            return
 
-    text = update.message.text.strip()
+        text = msg.text or msg.caption
+        if not text:
+            return
 
-    gif_key = "default"
+        text = text.strip()
 
-    if text.lower().startswith("add "):
-        try:
+        gif_key = "default"
+
+        if text.lower().startswith("add "):
             task = text[4:].strip()
             save_task(task)
             gif_key = "add"
             reply = jesse("Task added.")
-        except:
-            traceback.print_exc()
-            reply = jesse("Failed to save task.")
 
-    elif text.lower().startswith("done "):
-        try:
+        elif text.lower().startswith("done "):
             task = text[5:].strip()
             ok = mark_done(task)
             gif_key = "done"
@@ -228,29 +219,52 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 reply = jesse("Couldn't find that task.")
 
-        except:
+        elif text.lower() == "focus":
+            gif_key = "focus"
+            reply = jesse_reply(text)
+
+        else:
+            reply = jesse_reply(text)
+
+        await send_gif(update, gif_key)
+        await msg.reply_text(reply)
+
+    except Exception:
+        print("[HANDLER CRASH]")
+        traceback.print_exc()
+
+# -------------------------
+# BOOT LOOP (CRASH-PROOF)
+# -------------------------
+
+def main():
+
+    while True:
+        try:
+            print("🔥 Jesse OS starting...")
+
+            app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+            # safer handlers
+            app.add_handler(MessageHandler(filters.ANIMATION, gif_debug))
+            app.add_handler(MessageHandler(filters.TEXT, handle))
+
+            print("🔥 Jesse OS RUNNING")
+
+            app.run_polling()
+
+        except Exception as e:
+            print("💥 BOT CRASHED - RESTARTING")
             traceback.print_exc()
-            reply = jesse("Update failed.")
-
-    elif text.lower() == "focus":
-        gif_key = "focus"
-        reply = jesse_reply(text)
-
-    else:
-        reply = jesse_reply(text)
-
-    await send_gif(update, gif_key)
-    await update.message.reply_text(reply)
+            time.sleep(3)
 
 # -------------------------
-# START BOT
+# ENTRY POINT
 # -------------------------
 
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
-app.add_handler(MessageHandler(filters.ALL, gif_debug))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-
-print("🔥 Jesse OS v6.1 FIXED MODE RUNNING")
-
-app.run_polling()
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        traceback.print_exc()
+        sys.exit(1)
