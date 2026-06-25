@@ -63,53 +63,32 @@ async def send_gif(update: Update, key: str):
 
 
 # -------------------------
-# 🔥 NOTION DEBUG + SAFE PARSER
+# NOTION FETCH (CLEAN)
 # -------------------------
 def get_tasks():
     try:
-        print("\n================ NOTION DEBUG ================")
-        print("DB ID:", NOTION_DB_ID)
-
         results = notion.databases.query(database_id=NOTION_DB_ID)
-
-        items = results.get("results", [])
-
-        print("RAW RESULT COUNT:", len(items))
-
-        if items:
-            print("\nSAMPLE ITEM STRUCTURE:")
-            print(items[0])
 
         tasks = []
 
-        for r in items:
+        for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # --- TITLE DETECTION (robust) ---
+            # Title
+            title_prop = props.get("Task", {}).get("title", [])
             title = "UNKNOWN TASK"
 
-            for key in ["Task", "Name", "Title"]:
-                if key in props:
-                    title_prop = props[key].get("title", [])
-                    if title_prop:
-                        title = title_prop[0].get("plain_text", title)
-                        break
+            if title_prop:
+                title = title_prop[0].get("plain_text", title)
 
-            # --- STATUS DETECTION ---
-            status = ""
-            if "Status" in props:
-                status_obj = props["Status"].get("select")
-                if status_obj:
-                    status = status_obj.get("name", "")
-
-            print(f"TASK → {title} | STATUS → {status}")
+            # Status
+            status_obj = props.get("Status", {}).get("select")
+            status = status_obj.get("name", "") if status_obj else ""
 
             tasks.append({
                 "title": title,
                 "status": status.strip().lower()
             })
-
-        print("=============== END NOTION DEBUG ===============\n")
 
         return tasks
 
@@ -120,15 +99,17 @@ def get_tasks():
 
 
 # -------------------------
-# TASK LIST (NO FILTER - DEBUG MODE)
+# PENDING TASKS
 # -------------------------
+PENDING_STATES = {"pending", "to do", "todo", "in progress"}
+
 def pending_tasks():
     tasks = get_tasks()
 
-    print("TASKS SENT TO BOT:")
-    print(tasks)
-
-    return tasks
+    return [
+        t for t in tasks
+        if (t.get("status") or "") in PENDING_STATES
+    ]
 
 
 def top_task():
@@ -185,15 +166,27 @@ def mark_done(task_name):
 def reply_logic(text):
     text = text.lower().strip()
 
+    if text == "focus":
+        task = top_task()
+        return jesse(f"Do this → {task}") if task else jesse("No tasks.")
+
+    if text == "today":
+        tasks = pending_tasks()[:3]
+        if not tasks:
+            return jesse("Nothing on your plate.")
+        return jesse("Top priorities:\n- " + "\n- ".join(t["title"] for t in tasks))
+
+    if text == "add ":
+        save_task(text[4:].strip())
+        return jesse("Task added.")
+
     if text == "list":
         tasks = pending_tasks()
-
         if not tasks:
-            return jesse("No tasks found in Notion.")
+            return jesse("No pending jobs.")
+        return jesse("Backlog:\n- " + "\n- ".join(t["title"] for t in tasks))
 
-        return jesse("Tasks:\n- " + "\n- ".join(t["title"] for t in tasks))
-
-    return jesse("Noted.")
+    return jesse(random.choice(["Noted.", "Alright.", "Got it.", "Say less."]))
 
 
 # -------------------------
@@ -205,8 +198,22 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not msg or not msg.text:
             return
 
-        reply = reply_logic(msg.text)
+        text = msg.text.strip()
 
+        gif_key = "default"
+
+        if text.lower().startswith("add "):
+            save_task(text[4:].strip())
+            gif_key = "add"
+        elif text.lower() == "focus":
+            gif_key = "focus"
+        elif text.lower().startswith("done "):
+            mark_done(text[5:].strip())
+            gif_key = "done"
+
+        reply = reply_logic(text)
+
+        await send_gif(update, gif_key)
         await msg.reply_text(reply)
 
     except Exception:
