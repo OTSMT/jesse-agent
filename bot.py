@@ -24,15 +24,27 @@ if not NOTION_DB_ID:
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# JESSE GIFS (PUT FILE IDS HERE LATER)
+
+# JESSE GIFS
+
 # -------------------------
 
 JESSE_GIFS = {
-    "add": None,
-    "done": None,
-    "focus": None,
-    "default": None
+"add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
+"done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
+"focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
+"default": "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
 }
+
+ALL_GIFS = [
+"CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
+"CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
+"CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
+"CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
+"CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
+"CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
+]
+
 
 # -------------------------
 # JESSE PERSONALITY
@@ -49,22 +61,25 @@ def jesse(text):
 
 async def send_gif(update: Update, key: str):
 
-    if not update.message:
-        return
+```
+if not update.message:
+    return
 
-    file_id = JESSE_GIFS.get(key) or JESSE_GIFS.get("default")
+file_id = JESSE_GIFS.get(key)
 
-    if not file_id:
-        print(f"[GIF MISSING] {key} (no file_id set yet)")
-        return
+# Fallback to random GIF if key doesn't exist
+if not file_id:
+    file_id = random.choice(ALL_GIFS)
 
-    try:
-        await update.message.reply_animation(animation=file_id)
-        print(f"[GIF SENT] {key}")
+try:
+    await update.message.reply_animation(animation=file_id)
+    print(f"[GIF SENT] {key}")
 
-    except Exception:
-        print("[GIF SEND FAILED]")
-        traceback.print_exc()
+except Exception:
+    print("[GIF SEND FAILED]")
+    traceback.print_exc()
+```
+
 
 # -------------------------
 # NOTION CORE
