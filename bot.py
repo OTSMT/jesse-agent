@@ -60,29 +60,22 @@ async def send_gif(update: Update, key: str):
         traceback.print_exc()
 
 # -------------------------
-# NOTION FETCH (DEBUG VERSION - FINAL DIAGNOSTIC)
+# NOTION FETCH
 # -------------------------
 def get_tasks():
     try:
         results = notion.databases.query(database_id=NOTION_DB_ID)
-
-        # 🔥 IMPORTANT DEBUG OUTPUT
-        print("\n========== NOTION RAW RESPONSE ==========")
-        print(results)
-        print("=========================================\n")
 
         tasks = []
 
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # Title
             title = "UNKNOWN TASK"
             title_prop = props.get("Task", {}).get("title", [])
             if title_prop:
-                title = title_prop[0].get("plain_text", title)
+                title = title_prop[0].get("plain_text", "UNKNOWN TASK")
 
-            # Status
             status = ""
             status_obj = props.get("Status", {}).get("select")
             if status_obj:
@@ -93,7 +86,6 @@ def get_tasks():
                 "status": status.strip().lower()
             })
 
-        print(f"PARSED TASKS COUNT: {len(tasks)}")
         return tasks
 
     except Exception:
@@ -106,17 +98,7 @@ def get_tasks():
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
-
-    print("TASKS FROM NOTION:", tasks)
-
-    filtered = [
-        t for t in tasks
-        if t.get("status") != "done"
-    ]
-
-    print("PENDING TASKS:", filtered)
-
-    return filtered
+    return [t for t in tasks if t.get("status") != "done"]
 
 def top_task():
     tasks = pending_tasks()
@@ -127,6 +109,14 @@ def top_task():
 # -------------------------
 def reply_logic(text):
     text = text.lower().strip()
+
+    # 🔥 DEBUG COMMAND (NEW)
+    if text == "debug":
+        try:
+            results = notion.databases.query(database_id=NOTION_DB_ID)
+            return f"RAW NOTION:\n{results}"
+        except Exception as e:
+            return f"ERROR:\n{str(e)}"
 
     if text == "focus":
         task = top_task()
