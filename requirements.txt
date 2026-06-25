@@ -1,0 +1,3 @@
+python-telegram-bot==21.10
+notion-client==2.2.1
+openai==1.40.0
