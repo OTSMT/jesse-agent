@@ -8,9 +8,6 @@ from notion_client import Client
 
 print("BOT STARTED")
 
-# -------------------------
-# ENV
-# -------------------------
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DB_ID = os.getenv("NOTION_DB_ID")
@@ -27,63 +24,166 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# DEBUG ON START (IMPORTANT)
+# DEBUG DB ON START
 # -------------------------
 try:
     db = notion.databases.retrieve(database_id=NOTION_DB_ID)
-    print("==== DATABASE CONNECTED ====")
-    print("Title:", db.get("title"))
-    print("Properties:", list(db.get("properties", {}).keys()))
+    print("==== DB CONNECTED ====")
+    print("DB TITLE:", db.get("title"))
 except Exception as e:
-    print("❌ DATABASE ERROR")
-    print(e)
+    print("DB ERROR:", e)
 
 # -------------------------
-# NOTION FETCH (RAW DEBUG INCLUDED)
+# FETCH TASKS (DEBUG ADDED)
 # -------------------------
 def get_tasks():
     try:
         res = notion.databases.query(database_id=NOTION_DB_ID)
-        print("==== RAW QUERY RESULT COUNT ====", len(res.get("results", [])))
-        return res.get("results", [])
+
+        results = res.get("results", [])
+
+        print("==== LIST DEBUG ====")
+        print("Tasks returned:", len(results))
+
+        return results
+
     except Exception as e:
         print("QUERY ERROR:", e)
         traceback.print_exc()
         return []
 
 # -------------------------
-# SAFE PROPERTY FINDERS
+# SAFE TITLE
 # -------------------------
 def extract_title(page):
-    props = page.get("properties", {})
-    for v in props.values():
-        if v.get("type") == "title":
-            t = v.get("title", [])
-            return t[0]["plain_text"] if t else "UNKNOWN"
+    try:
+        for v in page.get("properties", {}).values():
+            if v.get("type") == "title":
+                t = v.get("title", [])
+                return t[0]["plain_text"] if t else "UNKNOWN"
+    except:
+        pass
     return "UNKNOWN"
 
+# -------------------------
+# SAFE STATUS
+# -------------------------
 def extract_status(page):
-    props = page.get("properties", {})
-    for v in props.values():
-        if v.get("type") == "select":
-            sel = v.get("select")
-            if sel:
-                return sel.get("name", "").lower()
+    try:
+        for v in page.get("properties", {}).values():
+            if v.get("type") == "select":
+                sel = v.get("select")
+                if sel:
+                    return sel.get("name", "").lower()
+    except:
+        pass
     return ""
 
 # -------------------------
-# CORE FILTERS
+# FILTERS
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
-    return [t for t in tasks if extract_status(t) != "done"]
+    filtered = [t for t in tasks if extract_status(t) != "done"]
+
+    print("Pending tasks:", len(filtered))
+    return filtered
 
 def top_task():
     tasks = pending_tasks()
     return extract_title(tasks[0]) if tasks else None
 
 # -------------------------
-# WRITE TASK
+# ADD TASK
 # -------------------------
 def save_task(text):
-    try
+    try:
+        notion.pages.create(
+            parent={"database_id": NOTION_DB_ID},
+            properties={
+                "Task": {"title": [{"text": {"content": text}}]},
+                "Status": {"select": {"name": "Pending"}},
+            },
+        )
+        print("TASK ADDED:", text)
+    except Exception as e:
+        print("ADD ERROR:", e)
+        traceback.print_exc()
+
+# -------------------------
+# DONE TASK
+# -------------------------
+def mark_done(name):
+    try:
+        tasks = get_tasks()
+
+        for t in tasks:
+            title = extract_title(t)
+
+            if title.lower().strip() == name.lower().strip():
+                notion.pages.update(
+                    page_id=t["id"],
+                    properties={
+                        "Status": {"select": {"name": "Done"}}
+                    },
+                )
+                print("MARKED DONE:", title)
+                return True
+
+        print("TASK NOT FOUND:", name)
+        return False
+
+    except Exception as e:
+        print("DONE ERROR:", e)
+        traceback.print_exc()
+        return False
+
+# -------------------------
+# LOGIC
+# -------------------------
+def reply(text):
+    text = text.lower().strip()
+
+    if text == "list":
+        tasks = pending_tasks()
+        if not tasks:
+            return jesse("No pending jobs.")
+        return jesse("Tasks:\n- " + "\n- ".join(extract_title(t) for t in tasks))
+
+    if text == "focus":
+        task = top_task()
+        return jesse(f"Do this → {task}") if task else jesse("No tasks.")
+
+    if text.startswith("add "):
+        save_task(text[4:])
+        return jesse("Task added.")
+
+    if text.startswith("done "):
+        ok = mark_done(text[5:])
+        return jesse("Done." if ok else "Not found.")
+
+    return jesse("Noted.")
+
+# -------------------------
+# HANDLER
+# -------------------------
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        text = update.message.text.strip()
+        response = reply(text)
+        await update.message.reply_text(response)
+    except Exception as e:
+        print("HANDLER ERROR:", e)
+        traceback.print_exc()
+
+# -------------------------
+# RUN
+# -------------------------
+def main():
+    print("RUNNING BOT")
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
