@@ -27,7 +27,7 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# SELF-HEALING GIF SYSTEM
+# GIFS (UNCHANGED IDS)
 # -------------------------
 JESSE_GIFS = {
     "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
@@ -35,67 +35,57 @@ JESSE_GIFS = {
     "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
 }
 
-GIF_URLS = {
-    "add": "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",
-    "done": "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
-    "focus": "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
-}
-
+# -------------------------
+# 🔥 DEBUG GIF SYSTEM (FULL VISIBILITY)
+# -------------------------
 async def send_gif(update: Update, key: str):
     try:
-        if not update or not update.effective_chat:
-            print("GIF SKIP: no chat context")
+        print("\n===== GIF DEBUG START =====")
+        print("KEY:", key)
+
+        if not update:
+            print("UPDATE IS NONE")
+            return
+
+        if not update.effective_chat:
+            print("NO EFFECTIVE CHAT")
             return
 
         bot = update.get_bot()
         chat_id = update.effective_chat.id
 
-        gif_id = JESSE_GIFS.get(key)
-        gif_url = GIF_URLS.get(key)
+        print("CHAT ID:", chat_id)
 
-        print(f"GIF TRY → {key}")
+        gif = JESSE_GIFS.get(key)
 
-        # -------------------------
-        # 1. TRY FILE_ID FIRST
-        # -------------------------
-        if gif_id:
-            try:
-                await bot.send_animation(
-                    chat_id=chat_id,
-                    animation=gif_id
-                )
-                print("GIF OK (file_id)")
-                return
-            except Exception as e:
-                print("GIF file_id failed:", e)
+        print("GIF FILE_ID:", gif)
 
-        # -------------------------
-        # 2. FALLBACK TO URL
-        # -------------------------
-        if gif_url:
-            try:
-                msg = await bot.send_animation(
-                    chat_id=chat_id,
-                    animation=gif_url
-                )
-                print("GIF OK (URL fallback)")
+        if not gif:
+            print("NO GIF FOUND FOR KEY")
+            return
 
-                # -------------------------
-                # AUTO-HEAL: save new file_id
-                # -------------------------
-                if msg and msg.animation:
-                    new_id = msg.animation.file_id
-                    JESSE_GIFS[key] = new_id
-                    print(f"GIF HEALED → updated file_id for '{key}'")
+        print("SENDING GIF NOW...")
 
-            except Exception as e:
-                print("GIF URL fallback failed:", e)
+        result = await bot.send_animation(
+            chat_id=chat_id,
+            animation=gif
+        )
+
+        print("GIF SENT SUCCESSFULLY")
+        print("RESPONSE TYPE:", type(result))
+        print("HAS ANIMATION:", hasattr(result, "animation"))
+
+        if result and result.animation:
+            print("ANIMATION FILE_ID RETURNED:", result.animation.file_id)
+
+        print("===== GIF DEBUG END =====\n")
 
     except Exception as e:
-        print("GIF SYSTEM ERROR:", e)
+        print("🔥 GIF FAILED HARD:", repr(e))
+        traceback.print_exc()
 
 # -------------------------
-# NOTION FETCH (UNCHANGED)
+# NOTION (UNCHANGED)
 # -------------------------
 def get_tasks():
     try:
@@ -112,9 +102,6 @@ def get_tasks():
         traceback.print_exc()
         return []
 
-# -------------------------
-# PARSING (UNCHANGED)
-# -------------------------
 def extract_title(page):
     try:
         props = page.get("properties", {})
@@ -138,9 +125,6 @@ def extract_status(page):
     except:
         return "pending"
 
-# -------------------------
-# LOGIC (UNCHANGED)
-# -------------------------
 def pending_tasks():
     tasks = get_tasks()
     return [t for t in tasks if extract_status(t) != "done"]
@@ -188,9 +172,6 @@ def mark_done(name):
         traceback.print_exc()
         return False
 
-# -------------------------
-# REPLY (UNCHANGED)
-# -------------------------
 def reply(text):
     text = text.lower().strip()
 
@@ -214,23 +195,21 @@ def reply(text):
 
     return jesse("Noted.")
 
-# -------------------------
-# HANDLER
-# -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = update.message.text.strip()
         response = reply(text)
 
-        try:
-            if text.startswith("add "):
-                await send_gif(update, "add")
-            elif text.startswith("done "):
-                await send_gif(update, "done")
-            elif text == "focus":
-                await send_gif(update, "focus")
-        except Exception as e:
-            print("GIF FLOW ERROR:", e)
+        print("\n=== MESSAGE RECEIVED ===")
+        print("TEXT:", text)
+
+        # GIF triggers (DEBUG MODE)
+        if text.startswith("add "):
+            await send_gif(update, "add")
+        elif text.startswith("done "):
+            await send_gif(update, "done")
+        elif text == "focus":
+            await send_gif(update, "focus")
 
         await update.message.reply_text(response)
 
@@ -238,9 +217,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("HANDLER ERROR:", e)
         traceback.print_exc()
 
-# -------------------------
-# RUN
-# -------------------------
 def main():
     print("RUNNING BOT")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
