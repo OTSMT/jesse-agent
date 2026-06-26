@@ -1,10 +1,10 @@
 import os
 import random
 import traceback
+import requests
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
-from notion_client import Client
 
 # -------------------------
 # ENV
@@ -19,9 +19,13 @@ if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
     raise ValueError("Missing env vars")
 
 # -------------------------
-# NOTION
+# NOTION HEADERS (RAW API)
 # -------------------------
-notion = Client(auth=NOTION_API_KEY)
+NOTION_HEADERS = {
+    "Authorization": f"Bearer {NOTION_API_KEY}",
+    "Notion-Version": "2022-06-28",
+    "Content-Type": "application/json",
+}
 
 # -------------------------
 # GIFS
@@ -41,43 +45,46 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# DEBUG NOTION
+# NOTION HELPERS (RAW API)
 # -------------------------
-def debug_notion():
-    try:
-        db = notion.databases.retrieve(database_id=NOTION_DB_ID)
-        props = db.get("properties", {})
+def notion_query():
+    url = f"https://api.notion.com/v1/databases/{NOTION_DB_ID}/query"
+    return requests.post(url, headers=NOTION_HEADERS).json()
 
-        lines = ["📦 NOTION DATABASE SCHEMA:"]
 
-        for name, info in props.items():
-            lines.append(f"- {name} → {info.get('type')}")
+def notion_create(task):
+    url = "https://api.notion.com/v1/pages"
 
-        results = notion.databases.query(
-            database_id=NOTION_DB_ID,
-            page_size=5
-        )
+    payload = {
+        "parent": {"database_id": NOTION_DB_ID},
+        "properties": {
+            "Task Type": {
+                "title": [{"text": {"content": task}}]
+            },
+            "Status Type": {
+                "select": {"name": "Pending"}
+            }
+        }
+    }
 
-        lines.append("\n📋 SAMPLE TASKS:")
+    return requests.post(url, headers=NOTION_HEADERS, json=payload).json()
 
-        for r in results.get("results", []):
-            title = "UNKNOWN"
 
-            for _, v in r.get("properties", {}).items():
-                if v.get("type") == "title":
-                    t = v.get("title", [])
-                    if t:
-                        title = t[0].get("plain_text", "UNKNOWN")
+def notion_update(page_id):
+    url = f"https://api.notion.com/v1/pages/{page_id}"
 
-            lines.append(f"- {title}")
+    payload = {
+        "properties": {
+            "Status Type": {
+                "select": {"name": "Done"}
+            }
+        }
+    }
 
-        return "\n".join(lines)
-
-    except Exception as e:
-        return f"❌ DEBUG FAILED:\n{e}"
+    return requests.patch(url, headers=NOTION_HEADERS, json=payload).json()
 
 # -------------------------
-# SAFE NOTION PARSING
+# PARSE NOTION
 # -------------------------
 def extract_title(props):
     for _, v in props.items():
@@ -101,14 +108,11 @@ def extract_status(props):
 # -------------------------
 def get_tasks():
     try:
-        results = notion.databases.query(
-            database_id=NOTION_DB_ID,
-            page_size=100
-        )
+        data = notion_query()
 
         tasks = []
 
-        for r in results.get("results", []):
+        for r in data.get("results", []):
             props = r.get("properties", {})
 
             tasks.append({
@@ -119,8 +123,7 @@ def get_tasks():
         return tasks
 
     except Exception as e:
-        print("NOTION FETCH ERROR")
-        print(e)
+        print("FETCH ERROR", e)
         traceback.print_exc()
         return []
 
@@ -128,73 +131,46 @@ def get_tasks():
 # FILTER
 # -------------------------
 def pending_tasks():
-    return [t for t in get_tasks() if t.get("status") != "done"]
+    return [t for t in get_tasks() if t["status"] != "done"]
 
 def top_task():
     tasks = pending_tasks()
     return tasks[0]["title"] if tasks else None
 
 # -------------------------
-# SAVE TASK
+# ACTIONS
 # -------------------------
 def save_task(task):
     try:
-        notion.pages.create(
-            parent={"database_id": NOTION_DB_ID},
-            properties={
-                "Task Type": {
-                    "title": [{"text": {"content": task}}]
-                },
-                "Status Type": {
-                    "select": {"name": "Pending"}
-                }
-            }
-        )
+        res = notion_create(task)
+        print("CREATE RESPONSE:", res)
         return True
-
     except Exception as e:
-        print("CREATE FAILED")
-        print(e)
-        traceback.print_exc()
+        print("CREATE ERROR", e)
         return False
 
-# -------------------------
-# MARK DONE
-# -------------------------
+
 def mark_done(task_name):
     try:
-        results = notion.databases.query(
-            database_id=NOTION_DB_ID,
-            filter={
-                "property": "Task Type",
-                "title": {"contains": task_name}
-            }
-        )
+        data = notion_query()
 
-        if not results.get("results"):
-            return False
+        for r in data.get("results", []):
+            props = r.get("properties", {})
+            title = extract_title(props)
 
-        page_id = results["results"][0]["id"]
+            if task_name.lower() in title.lower():
+                page_id = r["id"]
+                notion_update(page_id)
+                return True
 
-        notion.pages.update(
-            page_id=page_id,
-            properties={
-                "Status Type": {
-                    "select": {"name": "Done"}
-                }
-            }
-        )
-
-        return True
+        return False
 
     except Exception as e:
-        print("DONE ERROR")
-        print(e)
-        traceback.print_exc()
+        print("DONE ERROR", e)
         return False
 
 # -------------------------
-# GIF SENDER
+# GIF
 # -------------------------
 async def send_gif(update: Update, key: str):
     try:
@@ -212,9 +188,6 @@ async def send_gif(update: Update, key: str):
 # -------------------------
 def reply_logic(text):
     text = text.lower().strip()
-
-    if text == "debug":
-        return debug_notion()
 
     if text == "list":
         tasks = pending_tasks()
