@@ -14,7 +14,6 @@ print("BOT STARTED")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 
-# IMPORTANT: your DB id (unchanged)
 NOTION_DB_ID = "7c3cad9121ab4194afc587cc1abcb5bb"
 
 if not TELEGRAM_TOKEN or not NOTION_API_KEY:
@@ -29,71 +28,74 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION DEBUG + FETCH
+# NOTION RAW INSPECTOR (IMPORTANT)
 # -------------------------
-def get_tasks(debug=False):
+def get_tasks_raw():
     try:
         db = notion.databases.retrieve(database_id=NOTION_DB_ID)
-
-        title = db.get("title", [])
-        db_name = title[0]["plain_text"] if title else "UNKNOWN"
-
         results = notion.databases.query(database_id=NOTION_DB_ID)
 
-        tasks = []
+        print("\n===== NOTION DEBUG =====")
+        print("DB TITLE:", db.get("title"))
+        print("RESULT COUNT:", len(results.get("results", [])))
+        print("========================\n")
 
-        for r in results.get("results", []):
-            props = r.get("properties", {})
-
-            # SAFE TITLE DETECTION
-            title_prop = props.get("Task", {}).get("title", [])
-            title = title_prop[0].get("plain_text") if title_prop else "UNKNOWN"
-
-            # SAFE STATUS DETECTION
-            status_obj = props.get("Status", {}).get("select")
-            status = status_obj.get("name") if status_obj else "Pending"
-
-            tasks.append({
-                "title": title,
-                "status": status.lower(),
-                "id": r["id"]
-            })
-
-        if debug:
-            print("DB NAME:", db_name)
-            print("TASK COUNT:", len(tasks))
-
-        return db_name, tasks
+        return db, results
 
     except Exception:
         traceback.print_exc()
-        return "ERROR", []
+        return None, {"results": []}
+
+# -------------------------
+# SAFE TASK PARSER (NO HARD PROPERTY NAMES)
+# -------------------------
+def parse_tasks():
+    _, results = get_tasks_raw()
+
+    tasks = []
+
+    for page in results.get("results", []):
+        props = page.get("properties", {})
+
+        title = "UNKNOWN"
+        status = "pending"
+
+        # Try to find title property dynamically
+        for prop_name, prop_value in props.items():
+            if prop_value.get("type") == "title":
+                t = prop_value.get("title", [])
+                if t:
+                    title = t[0].get("plain_text", "UNKNOWN")
+
+            if prop_value.get("type") == "select":
+                sel = prop_value.get("select")
+                if sel:
+                    status = sel.get("name", "pending")
+
+        tasks.append({
+            "title": title,
+            "status": status.lower(),
+            "id": page.get("id")
+        })
+
+    return tasks
 
 # -------------------------
 # FILTERS
 # -------------------------
 def pending_tasks():
-    _, tasks = get_tasks()
-    return [t for t in tasks if t["status"] != "done"]
-
-def top_task():
-    tasks = pending_tasks()
-    return tasks[0]["title"] if tasks else None
+    return [t for t in parse_tasks() if t["status"] != "done"]
 
 # -------------------------
-# SAVE
+# ACTIONS
 # -------------------------
 def save_task(task):
     try:
         notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
-                "Task": {
-                    "title": [{"text": {"content": task}}]
-                },
-                "Status": {
-                    "select": {"name": "Pending"}
-                }
+                "Task": {"title": [{"text": {"content": task}}]},
+                "Status": {"select": {"name": "Pending"}}
             }
         )
         return True
@@ -101,14 +103,10 @@ def save_task(task):
         traceback.print_exc()
         return False
 
-# -------------------------
-# DONE
-# -------------------------
 def mark_done(task_name):
     try:
-        _, tasks = get_tasks()
-
-        task_name = task_name.lower().strip()
+        tasks = parse_tasks()
+        task_name = task_name.lower()
 
         for t in tasks:
             if task_name in t["title"].lower():
@@ -133,8 +131,14 @@ def reply_logic(text):
     text = text.lower().strip()
 
     if text == "debug":
-        db_name, tasks = get_tasks(debug=True)
-        return jesse(f"DB: {db_name} | TASKS: {len(tasks)}")
+        db, results = get_tasks_raw()
+        count = len(results.get("results", []))
+        return jesse(f"DEBUG → tasks in DB response: {count}")
+
+    if text == "dump":
+        # THIS is the key tool now
+        _, results = get_tasks_raw()
+        return jesse(str(results)[:1500])
 
     if text == "list":
         tasks = pending_tasks()
@@ -150,10 +154,6 @@ def reply_logic(text):
         ok = mark_done(text[5:])
         return jesse("Done.") if ok else jesse("Not found.")
 
-    if text == "focus":
-        task = top_task()
-        return jesse(f"Do this → {task}") if task else jesse("No tasks.")
-
     return jesse("Noted.")
 
 # -------------------------
@@ -165,9 +165,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not msg:
             return
 
-        text = msg.text
-
-        reply = reply_logic(text)
+        reply = reply_logic(msg.text)
 
         await msg.reply_text(reply)
 
