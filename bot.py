@@ -1,10 +1,10 @@
 import os
 import random
 import traceback
-import requests
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
+from notion_client import Client
 
 # -------------------------
 # ENV
@@ -19,13 +19,9 @@ if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
     raise ValueError("Missing env vars")
 
 # -------------------------
-# NOTION HEADERS (RAW API)
+# NOTION
 # -------------------------
-NOTION_HEADERS = {
-    "Authorization": f"Bearer {NOTION_API_KEY}",
-    "Notion-Version": "2022-06-28",
-    "Content-Type": "application/json",
-}
+notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
 # GIFS
@@ -45,90 +41,43 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION HELPERS (RAW API)
-# -------------------------
-def notion_query():
-    url = f"https://api.notion.com/v1/databases/{NOTION_DB_ID}/query"
-    return requests.post(url, headers=NOTION_HEADERS).json()
-
-
-def notion_create(task):
-    url = "https://api.notion.com/v1/pages"
-
-    payload = {
-        "parent": {"database_id": NOTION_DB_ID},
-        "properties": {
-            "Task Type": {
-                "title": [{"text": {"content": task}}]
-            },
-            "Status Type": {
-                "select": {"name": "Pending"}
-            }
-        }
-    }
-
-    return requests.post(url, headers=NOTION_HEADERS, json=payload).json()
-
-
-def notion_update(page_id):
-    url = f"https://api.notion.com/v1/pages/{page_id}"
-
-    payload = {
-        "properties": {
-            "Status Type": {
-                "select": {"name": "Done"}
-            }
-        }
-    }
-
-    return requests.patch(url, headers=NOTION_HEADERS, json=payload).json()
-
-# -------------------------
-# PARSE NOTION
-# -------------------------
-def extract_title(props):
-    for _, v in props.items():
-        if v.get("type") == "title":
-            t = v.get("title", [])
-            if t:
-                return t[0].get("plain_text", "UNKNOWN TASK")
-    return "UNKNOWN TASK"
-
-
-def extract_status(props):
-    for _, v in props.items():
-        if v.get("type") == "select":
-            s = v.get("select")
-            if s and s.get("name"):
-                return s["name"].lower().strip()
-    return "pending"
-
-# -------------------------
-# GET TASKS
+# NOTION HELPERS
 # -------------------------
 def get_tasks():
     try:
-        data = notion_query()
+        results = notion.databases.query(
+            database_id=NOTION_DB_ID,
+            page_size=100
+        )
 
         tasks = []
 
-        for r in data.get("results", []):
+        for r in results.get("results", []):
             props = r.get("properties", {})
 
+            # TITLE = Task
+            task_prop = props.get("Task", {}).get("title", [])
+            title = task_prop[0].get("plain_text") if task_prop else "UNKNOWN TASK"
+
+            # STATUS = Status
+            status_obj = props.get("Status", {}).get("select")
+            status = status_obj.get("name") if status_obj else "Pending"
+
             tasks.append({
-                "title": extract_title(props),
-                "status": extract_status(props)
+                "title": title,
+                "status": status.lower().strip(),
+                "id": r["id"]
             })
 
         return tasks
 
-    except Exception as e:
-        print("FETCH ERROR", e)
+    except Exception:
+        print("NOTION FETCH ERROR")
         traceback.print_exc()
         return []
 
 # -------------------------
-# FILTER
+# FILTERS
 # -------------------------
 def pending_tasks():
     return [t for t in get_tasks() if t["status"] != "done"]
@@ -138,35 +87,49 @@ def top_task():
     return tasks[0]["title"] if tasks else None
 
 # -------------------------
-# ACTIONS
+# SAVE TASK
 # -------------------------
 def save_task(task):
     try:
-        res = notion_create(task)
-        print("CREATE RESPONSE:", res)
+        notion.pages.create(
+            parent={"database_id": NOTION_DB_ID},
+            properties={
+                "Task": {
+                    "title": [{"text": {"content": task}}]
+                },
+                "Status": {
+                    "select": {"name": "Pending"}
+                },
+            },
+        )
         return True
-    except Exception as e:
-        print("CREATE ERROR", e)
+    except Exception:
+        print("CREATE ERROR")
+        traceback.print_exc()
         return False
 
-
+# -------------------------
+# MARK DONE
+# -------------------------
 def mark_done(task_name):
     try:
-        data = notion_query()
+        tasks = get_tasks()
 
-        for r in data.get("results", []):
-            props = r.get("properties", {})
-            title = extract_title(props)
-
-            if task_name.lower() in title.lower():
-                page_id = r["id"]
-                notion_update(page_id)
+        for t in tasks:
+            if task_name.lower() in t["title"].lower():
+                notion.pages.update(
+                    page_id=t["id"],
+                    properties={
+                        "Status": {"select": {"name": "Done"}}
+                    },
+                )
                 return True
 
         return False
 
-    except Exception as e:
-        print("DONE ERROR", e)
+    except Exception:
+        print("DONE ERROR")
+        traceback.print_exc()
         return False
 
 # -------------------------
@@ -201,11 +164,11 @@ def reply_logic(text):
 
     if text.startswith("add "):
         ok = save_task(text[4:].strip())
-        return jesse("Task added.") if ok else jesse("Couldn't save task.")
+        return jesse("Task added.") if ok else jesse("Failed to add task.")
 
     if text.startswith("done "):
         ok = mark_done(text[5:].strip())
-        return jesse("Task completed.") if ok else jesse("Couldn't find task.")
+        return jesse("Task done.") if ok else jesse("Couldn't find task.")
 
     return jesse("Noted.")
 
