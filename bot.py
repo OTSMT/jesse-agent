@@ -18,6 +18,8 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
     raise ValueError("Missing env vars")
 
+print("DB ID IN USE:", NOTION_DB_ID)
+
 # -------------------------
 # NOTION CLIENT
 # -------------------------
@@ -50,16 +52,18 @@ def get_tasks():
             page_size=100
         )
 
+        print("NOTION RESULTS COUNT:", len(results.get("results", [])))
+
         tasks = []
 
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # TITLE (Task)
+            # TASK TITLE
             task_prop = props.get("Task", {}).get("title", [])
             title = task_prop[0].get("plain_text") if task_prop else "UNKNOWN TASK"
 
-            # STATUS (Status)
+            # STATUS
             status_obj = props.get("Status", {}).get("select")
             status = status_obj.get("name") if status_obj else "Pending"
 
@@ -77,18 +81,14 @@ def get_tasks():
         return []
 
 # -------------------------
-# FILTERS (FIXED)
+# FILTERS
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
-    cleaned = []
-
-    for t in tasks:
-        status = (t.get("status") or "").strip().lower()
-        if status != "done":
-            cleaned.append(t)
-
-    return cleaned
+    return [
+        t for t in tasks
+        if (t.get("status") or "").strip().lower() != "done"
+    ]
 
 def top_task():
     tasks = pending_tasks()
@@ -102,23 +102,18 @@ def save_task(task):
         notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
-                "Task": {
-                    "title": [{"text": {"content": task}}]
-                },
-                "Status": {
-                    "select": {"name": "Pending"}
-                },
+                "Task": {"title": [{"text": {"content": task}}]},
+                "Status": {"select": {"name": "Pending"}},
             },
         )
         return True
-
     except Exception:
         print("CREATE ERROR")
         traceback.print_exc()
         return False
 
 # -------------------------
-# MARK DONE (FIXED MATCHING)
+# MARK DONE
 # -------------------------
 def mark_done(task_name):
     try:
@@ -133,9 +128,7 @@ def mark_done(task_name):
                 notion.pages.update(
                     page_id=t["id"],
                     properties={
-                        "Status": {
-                            "select": {"name": "Done"}
-                        }
+                        "Status": {"select": {"name": "Done"}}
                     },
                 )
                 return True
@@ -166,6 +159,10 @@ async def send_gif(update: Update, key: str):
 # -------------------------
 def reply_logic(text):
     text = text.lower().strip()
+
+    if text == "debug":
+        tasks = get_tasks()
+        return jesse(f"DEBUG → {len(tasks)} tasks loaded from Notion")
 
     if text == "list":
         tasks = pending_tasks()
@@ -218,6 +215,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # MAIN
 # -------------------------
 def main():
+    print("RUNNING BOT")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     app.run_polling()
