@@ -41,7 +41,27 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION READ
+# SAFE NOTION FIELD DETECTION
+# -------------------------
+def extract_title(props):
+    for _, v in props.items():
+        if v.get("type") == "title":
+            t = v.get("title", [])
+            if t:
+                return t[0].get("plain_text", "UNKNOWN TASK")
+    return "UNKNOWN TASK"
+
+
+def extract_status(props):
+    for _, v in props.items():
+        if v.get("type") == "select":
+            s = v.get("select")
+            if s and s.get("name"):
+                return s["name"].lower().strip()
+    return "pending"
+
+# -------------------------
+# GET TASKS
 # -------------------------
 def get_tasks():
     try:
@@ -57,13 +77,8 @@ def get_tasks():
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # TITLE
-            title_prop = props.get("Task Type", {}).get("title", [])
-            title = title_prop[0].get("plain_text") if title_prop else "UNKNOWN TASK"
-
-            # STATUS
-            status_obj = props.get("Status Type", {}).get("select")
-            status = status_obj.get("name", "Pending").lower().strip() if status_obj else "pending"
+            title = extract_title(props)
+            status = extract_status(props)
 
             print(f"FOUND → {title} | {status}")
 
@@ -85,8 +100,7 @@ def get_tasks():
 # FILTER
 # -------------------------
 def pending_tasks():
-    tasks = get_tasks()
-    return [t for t in tasks if t.get("status") != "done"]
+    return [t for t in get_tasks() if t.get("status") != "done"]
 
 def top_task():
     tasks = pending_tasks()
@@ -102,6 +116,7 @@ def save_task(task):
         notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
+                # title field (auto-detected by Notion anyway)
                 "Task Type": {
                     "title": [
                         {"text": {"content": task}}
@@ -123,7 +138,7 @@ def save_task(task):
         return False
 
 # -------------------------
-# MARK DONE
+# DONE TASK
 # -------------------------
 def mark_done(task_name):
     try:
