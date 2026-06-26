@@ -14,60 +14,42 @@ print("BOT STARTED")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 
-# YOUR DB ID (FIXED)
+# IMPORTANT: your DB id (unchanged)
 NOTION_DB_ID = "7c3cad9121ab4194afc587cc1abcb5bb"
 
 if not TELEGRAM_TOKEN or not NOTION_API_KEY:
     raise ValueError("Missing env vars")
 
-print("USING DB:", NOTION_DB_ID)
-
-# -------------------------
-# NOTION
-# -------------------------
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# GIFS
+# JESSE STYLE
 # -------------------------
-JESSE_GIFS = {
-    "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
-    "done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
-    "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
-}
-
-DEFAULT_GIFS = [
-    "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
-    "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
-]
-
 def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION SAFE FETCH (FIXED)
+# NOTION DEBUG + FETCH
 # -------------------------
-def get_tasks():
+def get_tasks(debug=False):
     try:
-        print("→ QUERY NOTION...")
+        db = notion.databases.retrieve(database_id=NOTION_DB_ID)
 
-        results = notion.databases.query(
-            database_id=NOTION_DB_ID,
-            page_size=100
-        )
+        title = db.get("title", [])
+        db_name = title[0]["plain_text"] if title else "UNKNOWN"
+
+        results = notion.databases.query(database_id=NOTION_DB_ID)
 
         tasks = []
 
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # TITLE (SAFE)
-            title_data = props.get("Task", {}).get("title", [])
-            title = "UNKNOWN"
-            if title_data:
-                title = title_data[0].get("plain_text", "UNKNOWN")
+            # SAFE TITLE DETECTION
+            title_prop = props.get("Task", {}).get("title", [])
+            title = title_prop[0].get("plain_text") if title_prop else "UNKNOWN"
 
-            # STATUS (SAFE)
+            # SAFE STATUS DETECTION
             status_obj = props.get("Status", {}).get("select")
             status = status_obj.get("name") if status_obj else "Pending"
 
@@ -77,19 +59,21 @@ def get_tasks():
                 "id": r["id"]
             })
 
-        print(f"→ FOUND TASKS: {len(tasks)}")
-        return tasks
+        if debug:
+            print("DB NAME:", db_name)
+            print("TASK COUNT:", len(tasks))
+
+        return db_name, tasks
 
     except Exception:
-        print("NOTION FETCH ERROR")
         traceback.print_exc()
-        return []
+        return "ERROR", []
 
 # -------------------------
-# FILTER
+# FILTERS
 # -------------------------
 def pending_tasks():
-    tasks = get_tasks()
+    _, tasks = get_tasks()
     return [t for t in tasks if t["status"] != "done"]
 
 def top_task():
@@ -97,7 +81,7 @@ def top_task():
     return tasks[0]["title"] if tasks else None
 
 # -------------------------
-# ADD TASK
+# SAVE
 # -------------------------
 def save_task(task):
     try:
@@ -114,16 +98,16 @@ def save_task(task):
         )
         return True
     except Exception:
-        print("CREATE ERROR")
         traceback.print_exc()
         return False
 
 # -------------------------
-# DONE TASK
+# DONE
 # -------------------------
 def mark_done(task_name):
     try:
-        tasks = get_tasks()
+        _, tasks = get_tasks()
+
         task_name = task_name.lower().strip()
 
         for t in tasks:
@@ -139,19 +123,18 @@ def mark_done(task_name):
         return False
 
     except Exception:
-        print("DONE ERROR")
         traceback.print_exc()
         return False
 
 # -------------------------
-# REPLY LOGIC
+# LOGIC
 # -------------------------
 def reply_logic(text):
     text = text.lower().strip()
 
     if text == "debug":
-        tasks = get_tasks()
-        return jesse(f"DEBUG → {len(tasks)} tasks found")
+        db_name, tasks = get_tasks(debug=True)
+        return jesse(f"DB: {db_name} | TASKS: {len(tasks)}")
 
     if text == "list":
         tasks = pending_tasks()
@@ -161,7 +144,7 @@ def reply_logic(text):
 
     if text.startswith("add "):
         ok = save_task(text[4:])
-        return jesse("Added.") if ok else jesse("Failed.")
+        return jesse("Added.") if ok else jesse("Failed add.")
 
     if text.startswith("done "):
         ok = mark_done(text[5:])
@@ -184,20 +167,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text = msg.text
 
-        gif_key = None
-        if text.lower().startswith("add "):
-            gif_key = "add"
-        elif text.lower().startswith("done "):
-            gif_key = "done"
-        elif text.lower() == "focus":
-            gif_key = "focus"
-
         reply = reply_logic(text)
-
-        if gif_key:
-            file_id = JESSE_GIFS.get(gif_key)
-            if file_id:
-                await msg.reply_animation(file_id)
 
         await msg.reply_text(reply)
 
