@@ -21,13 +21,27 @@ if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
+# JESSE GIFS
+# -------------------------
+JESSE_GIFS = {
+    "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
+    "done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
+    "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
+}
+
+DEFAULT_GIFS = [
+    "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
+    "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
+]
+
+# -------------------------
 # JESSE STYLE (UNCHANGED)
 # -------------------------
 def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION SAFE FETCH
+# NOTION SAFE QUERY
 # -------------------------
 def get_tasks():
     try:
@@ -38,53 +52,44 @@ def get_tasks():
         return []
 
 # -------------------------
-# PARSE TASK TITLE (ROBUST)
+# FIXED TITLE (REAL NOTION STRUCTURE)
 # -------------------------
 def extract_title(page):
     try:
         props = page.get("properties", {})
-        for prop in props.values():
-            if prop.get("type") == "title":
-                title_arr = prop.get("title", [])
-                if title_arr:
-                    return title_arr[0].get("plain_text", "UNKNOWN")
+        title_prop = props.get("Task", {}).get("title", [])
+        if title_prop:
+            return title_prop[0].get("plain_text", "UNKNOWN")
         return "UNKNOWN"
     except:
         return "UNKNOWN"
 
 # -------------------------
-# PARSE STATUS
+# FIXED STATUS
 # -------------------------
 def extract_status(page):
     try:
         props = page.get("properties", {})
-        for prop in props.values():
-            if prop.get("type") == "select":
-                sel = prop.get("select")
-                if sel:
-                    return sel.get("name", "").lower()
+        status_obj = props.get("Status", {}).get("select")
+        if status_obj:
+            return status_obj.get("name", "").lower()
         return ""
     except:
         return ""
 
 # -------------------------
-# FILTERS (UNCHANGED LOGIC)
+# FILTERS
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
-    return [
-        t for t in tasks
-        if extract_status(t) != "done"
-    ]
+    return [t for t in tasks if extract_status(t) != "done"]
 
 def top_task():
     tasks = pending_tasks()
-    if not tasks:
-        return None
-    return extract_title(tasks[0])
+    return extract_title(tasks[0]) if tasks else None
 
 # -------------------------
-# SAVE TASK (UNCHANGED LOGIC)
+# SAVE TASK
 # -------------------------
 def save_task(task):
     try:
@@ -92,14 +97,14 @@ def save_task(task):
             parent={"database_id": NOTION_DB_ID},
             properties={
                 "Task": {"title": [{"text": {"content": task}}]},
-                "Status": {"select": {"name": "Pending"}}
-            }
+                "Status": {"select": {"name": "Pending"}},
+            },
         )
     except Exception:
         traceback.print_exc()
 
 # -------------------------
-# MARK DONE (UNCHANGED LOGIC)
+# MARK DONE (FIXED MATCHING)
 # -------------------------
 def mark_done(task_name):
     try:
@@ -113,7 +118,7 @@ def mark_done(task_name):
                     page_id=page["id"],
                     properties={
                         "Status": {"select": {"name": "Done"}}
-                    }
+                    },
                 )
                 return True
 
@@ -124,7 +129,7 @@ def mark_done(task_name):
         return False
 
 # -------------------------
-# CORE LOGIC (UNCHANGED)
+# JESSE CORE LOGIC (UNCHANGED)
 # -------------------------
 def reply_logic(text):
     text = text.lower().strip()
@@ -155,7 +160,23 @@ def reply_logic(text):
     return jesse(random.choice(["Noted.", "Alright.", "Got it.", "Say less.", "I'm tracking it."]))
 
 # -------------------------
-# HANDLER (UNCHANGED + DEBUG ADDED)
+# GIF SENDER (FIXED + RELIABLE)
+# -------------------------
+async def send_gif(update: Update, key: str):
+    try:
+        if not update or not update.message:
+            return
+
+        file_id = JESSE_GIFS.get(key) or random.choice(DEFAULT_GIFS)
+
+        await update.message.reply_animation(animation=file_id)
+
+    except Exception:
+        print("GIF ERROR")
+        traceback.print_exc()
+
+# -------------------------
+# HANDLER (FIXED FLOW)
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -167,48 +188,29 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         gif_key = None
 
-        # -------------------------
-        # TEMP DEBUG COMMAND (IMPORTANT)
-        # -------------------------
-        if text.lower() == "db":
-            try:
-                db = notion.databases.retrieve(database_id=NOTION_DB_ID)
-                props = db.get("properties", {})
-                title = db.get("title", [])
-
-                await msg.reply_text(
-                    jesse(
-                        "DB OK → " + str(title) +
-                        "\nPROPERTIES → " + ", ".join(props.keys())
-                    )
-                )
-                return
-            except Exception as e:
-                await msg.reply_text(jesse(f"DB ERROR → {repr(e)}"))
-                return
-
-        # -------------------------
-        # GIF LOGIC (UNCHANGED BEHAVIOR)
-        # -------------------------
         if text.lower().startswith("add "):
             gif_key = "add"
-        elif text.lower() == "focus":
-            gif_key = "focus"
         elif text.lower().startswith("done "):
             gif_key = "done"
+        elif text.lower() == "focus":
+            gif_key = "focus"
 
-        # -------------------------
-        # RESPONSE
-        # -------------------------
-        reply = reply_logic(text)
+        # EXECUTE LOGIC
+        if text.lower().startswith("done "):
+            ok = mark_done(text[5:].strip())
+            reply = jesse("Task completed." if ok else "Couldn't find that task.")
+        else:
+            reply = reply_logic(text)
 
+        # SEND GIF + TEXT (ALWAYS SAFE)
+        await send_gif(update, gif_key)
         await msg.reply_text(reply)
 
     except Exception:
         traceback.print_exc()
 
 # -------------------------
-# MAIN (UNCHANGED)
+# MAIN
 # -------------------------
 def main():
     print("RUNNING BOT")
