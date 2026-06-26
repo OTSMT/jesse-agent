@@ -19,7 +19,7 @@ if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
     raise ValueError("Missing env vars")
 
 # -------------------------
-# NOTION
+# NOTION CLIENT
 # -------------------------
 notion = Client(auth=NOTION_API_KEY)
 
@@ -41,7 +41,7 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION HELPERS
+# NOTION FETCH
 # -------------------------
 def get_tasks():
     try:
@@ -55,17 +55,17 @@ def get_tasks():
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # TITLE = Task
+            # TITLE (Task)
             task_prop = props.get("Task", {}).get("title", [])
             title = task_prop[0].get("plain_text") if task_prop else "UNKNOWN TASK"
 
-            # STATUS = Status
+            # STATUS (Status)
             status_obj = props.get("Status", {}).get("select")
             status = status_obj.get("name") if status_obj else "Pending"
 
             tasks.append({
                 "title": title,
-                "status": status.lower().strip(),
+                "status": status,
                 "id": r["id"]
             })
 
@@ -77,10 +77,18 @@ def get_tasks():
         return []
 
 # -------------------------
-# FILTERS
+# FILTERS (FIXED)
 # -------------------------
 def pending_tasks():
-    return [t for t in get_tasks() if t["status"] != "done"]
+    tasks = get_tasks()
+    cleaned = []
+
+    for t in tasks:
+        status = (t.get("status") or "").strip().lower()
+        if status != "done":
+            cleaned.append(t)
+
+    return cleaned
 
 def top_task():
     tasks = pending_tasks()
@@ -103,24 +111,31 @@ def save_task(task):
             },
         )
         return True
+
     except Exception:
         print("CREATE ERROR")
         traceback.print_exc()
         return False
 
 # -------------------------
-# MARK DONE
+# MARK DONE (FIXED MATCHING)
 # -------------------------
 def mark_done(task_name):
     try:
         tasks = get_tasks()
 
+        search = task_name.strip().lower()
+
         for t in tasks:
-            if task_name.lower() in t["title"].lower():
+            title = (t["title"] or "").strip().lower()
+
+            if search in title or title in search:
                 notion.pages.update(
                     page_id=t["id"],
                     properties={
-                        "Status": {"select": {"name": "Done"}}
+                        "Status": {
+                            "select": {"name": "Done"}
+                        }
                     },
                 )
                 return True
