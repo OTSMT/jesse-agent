@@ -4,10 +4,12 @@ import time
 import json
 import datetime
 import traceback
+import tempfile
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 from notion_client import Client
+from gtts import gTTS
 
 print("BOT STARTED")
 
@@ -17,6 +19,9 @@ print("BOT STARTED")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DB_ID = os.getenv("NOTION_DB_ID")
+
+# IMPORTANT: set this to your chat ID for scheduled messages
+CHAT_ID = os.getenv("CHAT_ID")
 
 notion = Client(auth=NOTION_API_KEY)
 
@@ -30,7 +35,7 @@ JESSE_GIFS = {
 }
 
 # -------------------------
-# MEMORY (SINGLE USER)
+# MEMORY
 # -------------------------
 MEM_FILE = "jesse_memory.json"
 
@@ -57,7 +62,7 @@ def save_memory():
         json.dump(MEMORY, f)
 
 # -------------------------
-# STREAK + WEEK
+# STREAK + WEEK SYSTEM
 # -------------------------
 def update_streak():
     today = datetime.date.today().isoformat()
@@ -79,13 +84,7 @@ def update_week():
         MEMORY["week_start"] = time.time()
 
 def update_activity():
-    now = time.time()
-
-    if now - MEMORY["last_seen"] > 6 * 3600:
-        MEMORY["streak"] = max(0, MEMORY["streak"] - 1)
-
-    MEMORY["last_seen"] = now
-
+    MEMORY["last_seen"] = time.time()
     update_streak()
     update_week()
 
@@ -144,7 +143,7 @@ def mark_done(name):
     return False
 
 # -------------------------
-# PERSONALITY
+# PERSONALITY ENGINE
 # -------------------------
 def get_personality():
     ratio = MEMORY["tasks_done"] / max(1, MEMORY["tasks_added"])
@@ -197,6 +196,23 @@ def jesse(text, task_count):
     return random.choice(prefix + mood_prefix) + text + random.choice(suffix)
 
 # -------------------------
+# VOICE (gTTS)
+# -------------------------
+def send_voice(update, text):
+    try:
+        tts = gTTS(text=text, lang="en")
+        file = tempfile.NamedTemporaryFile(delete=False, suffix=".ogg")
+        tts.save(file.name)
+
+        with open(file.name, "rb") as voice:
+            update.get_bot().send_voice(
+                chat_id=update.effective_chat.id,
+                voice=voice
+            )
+    except:
+        pass
+
+# -------------------------
 # REPLY
 # -------------------------
 def reply(text):
@@ -212,6 +228,9 @@ def reply(text):
     if text == "focus":
         t = pending_tasks()
         return jesse(f"Do this → {extract_title(t[0])}" if t else "No tasks.", task_count)
+
+    if text == "voice":
+        return "VOICE_MODE"
 
     if text.startswith("add"):
         save_task(text.replace("add", "", 1).strip())
@@ -229,13 +248,57 @@ def reply(text):
     return jesse("Noted.", task_count)
 
 # -------------------------
-# GIF
+# GIFS
 # -------------------------
 async def send_gif(update: Update):
     try:
         await update.get_bot().send_animation(
             chat_id=update.effective_chat.id,
             animation=random.choice(list(JESSE_GIFS.values()))
+        )
+    except:
+        pass
+
+# -------------------------
+# WEEKLY + CHECK-IN SYSTEM
+# -------------------------
+def weekly_recap(context):
+    try:
+        if not CHAT_ID:
+            return
+
+        ratio = MEMORY["tasks_done"] / max(1, MEMORY["tasks_added"])
+
+        context.bot.send_message(
+            chat_id=CHAT_ID,
+            text=f"""
+Weekly recap:
+
+Added: {MEMORY['weekly_added']}
+Done: {MEMORY['weekly_done']}
+Streak: {MEMORY['streak']}
+
+Jesse says: {"you’re locked in" if ratio > 0.6 else "we need work"}
+"""
+        )
+    except:
+        pass
+
+def jesse_checkin(context):
+    try:
+        if not CHAT_ID:
+            return
+
+        messages = [
+            "yo where you at",
+            "we working today or what",
+            "don’t disappear on me",
+            "you slacking or grinding?"
+        ]
+
+        context.bot.send_message(
+            chat_id=CHAT_ID,
+            text=random.choice(messages)
         )
     except:
         pass
@@ -248,10 +311,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_activity()
 
         text = update.message.text.lower().strip()
-
         response = reply(text)
 
         save_memory()
+
+        if response == "VOICE_MODE":
+            send_voice(update, "Yo. This is Jesse. You’re still in the game. Don’t disappear on me.")
+            await send_gif(update)
+            return
 
         await update.message.reply_text(response)
         await send_gif(update)
@@ -261,10 +328,15 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         traceback.print_exc()
 
 # -------------------------
-# RUN
+# MAIN
 # -------------------------
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+    job_queue = app.job_queue
+    job_queue.run_repeating(jesse_checkin, interval=6*3600, first=60)
+    job_queue.run_repeating(weekly_recap, interval=7*24*3600, first=120)
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     app.run_polling()
 
