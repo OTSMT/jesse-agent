@@ -41,7 +41,7 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION SAFE QUERY
+# NOTION FETCH
 # -------------------------
 def get_tasks():
     try:
@@ -52,33 +52,41 @@ def get_tasks():
         return []
 
 # -------------------------
-# FIXED TITLE (REAL NOTION STRUCTURE)
+# UNIVERSAL TITLE PARSER (FIXED)
 # -------------------------
 def extract_title(page):
     try:
         props = page.get("properties", {})
-        title_prop = props.get("Task", {}).get("title", [])
-        if title_prop:
-            return title_prop[0].get("plain_text", "UNKNOWN")
+
+        for prop in props.values():
+            if prop.get("type") == "title":
+                title = prop.get("title", [])
+                if title:
+                    return title[0].get("plain_text", "UNKNOWN")
+
         return "UNKNOWN"
     except:
         return "UNKNOWN"
 
 # -------------------------
-# FIXED STATUS
+# UNIVERSAL STATUS PARSER (FIXED)
 # -------------------------
 def extract_status(page):
     try:
         props = page.get("properties", {})
-        status_obj = props.get("Status", {}).get("select")
-        if status_obj:
-            return status_obj.get("name", "").lower()
+
+        for prop in props.values():
+            if prop.get("type") == "select":
+                sel = prop.get("select")
+                if sel:
+                    return sel.get("name", "").lower()
+
         return ""
     except:
         return ""
 
 # -------------------------
-# FILTERS
+# TASK FILTERS
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
@@ -104,7 +112,7 @@ def save_task(task):
         traceback.print_exc()
 
 # -------------------------
-# MARK DONE (FIXED MATCHING)
+# MARK DONE (FIXED SEARCH RELIABLY)
 # -------------------------
 def mark_done(task_name):
     try:
@@ -113,7 +121,7 @@ def mark_done(task_name):
         for page in results.get("results", []):
             title = extract_title(page)
 
-            if task_name.lower() in title.lower():
+            if task_name.strip().lower() == title.strip().lower():
                 notion.pages.update(
                     page_id=page["id"],
                     properties={
@@ -129,7 +137,7 @@ def mark_done(task_name):
         return False
 
 # -------------------------
-# JESSE CORE LOGIC (UNCHANGED)
+# CORE LOGIC (UNCHANGED)
 # -------------------------
 def reply_logic(text):
     text = text.lower().strip()
@@ -160,7 +168,7 @@ def reply_logic(text):
     return jesse(random.choice(["Noted.", "Alright.", "Got it.", "Say less.", "I'm tracking it."]))
 
 # -------------------------
-# GIF SENDER (FIXED + RELIABLE)
+# GIF SENDER (FIXED)
 # -------------------------
 async def send_gif(update: Update, key: str):
     try:
@@ -168,7 +176,6 @@ async def send_gif(update: Update, key: str):
             return
 
         file_id = JESSE_GIFS.get(key) or random.choice(DEFAULT_GIFS)
-
         await update.message.reply_animation(animation=file_id)
 
     except Exception:
@@ -176,7 +183,7 @@ async def send_gif(update: Update, key: str):
         traceback.print_exc()
 
 # -------------------------
-# HANDLER (FIXED FLOW)
+# HANDLER
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -195,14 +202,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif text.lower() == "focus":
             gif_key = "focus"
 
-        # EXECUTE LOGIC
+        # DONE HANDLING
         if text.lower().startswith("done "):
             ok = mark_done(text[5:].strip())
             reply = jesse("Task completed." if ok else "Couldn't find that task.")
         else:
             reply = reply_logic(text)
 
-        # SEND GIF + TEXT (ALWAYS SAFE)
         await send_gif(update, gif_key)
         await msg.reply_text(reply)
 
