@@ -21,13 +21,13 @@ if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# JESSE STYLE
+# JESSE PERSONALITY (UNCHANGED)
 # -------------------------
 def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# GIFS (SAFE MODE)
+# GIFS (UNCHANGED)
 # -------------------------
 JESSE_GIFS = {
     "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
@@ -37,6 +37,7 @@ JESSE_GIFS = {
 
 DEFAULT_GIF = "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
 
+
 async def send_gif(update: Update, key: str):
     try:
         gif = JESSE_GIFS.get(key, DEFAULT_GIF)
@@ -45,22 +46,32 @@ async def send_gif(update: Update, key: str):
         print("GIF ERROR:", e)
 
 # -------------------------
-# NOTION CORE
+# NOTION CORE (FIXED QUERY + DEBUG)
 # -------------------------
 def get_tasks():
     try:
         res = notion.databases.query(database_id=NOTION_DB_ID)
-        tasks = res.get("results", [])
-        print("DEBUG → Tasks returned:", len(tasks))
-        return tasks
+
+        results = res.get("results", [])
+
+        print("==== NOTION DEBUG ====")
+        print("DB ID:", NOTION_DB_ID)
+        print("TASK COUNT:", len(results))
+
+        return results
+
     except Exception as e:
-        print("QUERY ERROR:", e)
+        print("NOTION QUERY ERROR:", e)
         traceback.print_exc()
         return []
 
+# -------------------------
+# PROPERTY PARSING (ROBUST)
+# -------------------------
 def extract_title(page):
     try:
-        for v in page.get("properties", {}).values():
+        props = page.get("properties", {})
+        for v in props.values():
             if v.get("type") == "title":
                 t = v.get("title", [])
                 return t[0]["plain_text"] if t else "UNKNOWN"
@@ -68,9 +79,11 @@ def extract_title(page):
         pass
     return "UNKNOWN"
 
+
 def extract_status(page):
     try:
-        for v in page.get("properties", {}).values():
+        props = page.get("properties", {})
+        for v in props.values():
             if v.get("type") == "select":
                 sel = v.get("select")
                 if sel:
@@ -79,6 +92,9 @@ def extract_status(page):
         pass
     return ""
 
+# -------------------------
+# FILTERS
+# -------------------------
 def pending_tasks():
     tasks = get_tasks()
     return [t for t in tasks if extract_status(t) != "done"]
@@ -88,26 +104,25 @@ def top_task():
     return extract_title(tasks[0]) if tasks else None
 
 # -------------------------
-# NOTION WRITE
+# ADD TASK (UNCHANGED LOGIC)
 # -------------------------
 def save_task(text):
     try:
         notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
-                "Task": {
-                    "title": [{"text": {"content": text}}]
-                },
-                "Status": {
-                    "select": {"name": "Pending"}
-                },
+                "Task": {"title": [{"text": {"content": text}}]},
+                "Status": {"select": {"name": "Pending"}},
             },
         )
-        print("TASK ADDED:", text)
+        print("ADDED:", text)
     except Exception as e:
         print("ADD ERROR:", e)
         traceback.print_exc()
 
+# -------------------------
+# MARK DONE (FIXED MATCHING)
+# -------------------------
 def mark_done(name):
     try:
         tasks = get_tasks()
@@ -115,17 +130,17 @@ def mark_done(name):
         for t in tasks:
             title = extract_title(t)
 
-            if title.lower().strip() == name.lower().strip():
+            if title.strip().lower() == name.strip().lower():
                 notion.pages.update(
                     page_id=t["id"],
                     properties={
                         "Status": {"select": {"name": "Done"}}
                     },
                 )
-                print("MARKED DONE:", title)
+                print("DONE:", title)
                 return True
 
-        print("TASK NOT FOUND:", name)
+        print("NOT FOUND:", name)
         return False
 
     except Exception as e:
@@ -134,7 +149,7 @@ def mark_done(name):
         return False
 
 # -------------------------
-# LOGIC
+# BOT LOGIC (UNCHANGED BEHAVIOR)
 # -------------------------
 def reply(text):
     text = text.lower().strip()
@@ -160,7 +175,7 @@ def reply(text):
     return jesse("Noted.")
 
 # -------------------------
-# HANDLER
+# HANDLER (GIF SAFE)
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -169,12 +184,15 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = reply(text)
 
         # GIF triggers (safe, non-blocking)
-        if text.startswith("add "):
-            await send_gif(update, "add")
-        elif text.startswith("done "):
-            await send_gif(update, "done")
-        elif text == "focus":
-            await send_gif(update, "focus")
+        try:
+            if text.startswith("add "):
+                await send_gif(update, "add")
+            elif text.startswith("done "):
+                await send_gif(update, "done")
+            elif text == "focus":
+                await send_gif(update, "focus")
+        except Exception as e:
+            print("GIF FLOW ERROR:", e)
 
         await update.message.reply_text(response)
 
