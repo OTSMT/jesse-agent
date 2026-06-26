@@ -18,10 +18,10 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
     raise ValueError("Missing env vars")
 
-print("DB ID IN USE:", NOTION_DB_ID)
+print("USING DB ID:", NOTION_DB_ID)
 
 # -------------------------
-# NOTION CLIENT
+# NOTION
 # -------------------------
 notion = Client(auth=NOTION_API_KEY)
 
@@ -43,25 +43,28 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION FETCH
+# NOTION FETCH (DEBUG STRONG)
 # -------------------------
 def get_tasks():
     try:
+        print("→ QUERYING NOTION DB...")
+
         results = notion.databases.query(
             database_id=NOTION_DB_ID,
             page_size=100
         )
 
-        print("NOTION RESULTS COUNT:", len(results.get("results", [])))
+        print("→ RAW RESULTS KEYS:", results.keys())
+        print("→ RESULT COUNT:", len(results.get("results", [])))
 
         tasks = []
 
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # TASK TITLE
-            task_prop = props.get("Task", {}).get("title", [])
-            title = task_prop[0].get("plain_text") if task_prop else "UNKNOWN TASK"
+            # TITLE
+            title_prop = props.get("Task", {}).get("title", [])
+            title = title_prop[0].get("plain_text") if title_prop else "UNKNOWN"
 
             # STATUS
             status_obj = props.get("Status", {}).get("select")
@@ -81,7 +84,7 @@ def get_tasks():
         return []
 
 # -------------------------
-# FILTERS
+# FILTER
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
@@ -102,27 +105,32 @@ def save_task(task):
         notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
-                "Task": {"title": [{"text": {"content": task}}]},
-                "Status": {"select": {"name": "Pending"}},
+                "Task": {
+                    "title": [{"text": {"content": task}}]
+                },
+                "Status": {
+                    "select": {"name": "Pending"}
+                },
             },
         )
         return True
+
     except Exception:
         print("CREATE ERROR")
         traceback.print_exc()
         return False
 
 # -------------------------
-# MARK DONE
+# DONE TASK
 # -------------------------
 def mark_done(task_name):
     try:
         tasks = get_tasks()
 
-        search = task_name.strip().lower()
+        search = task_name.lower().strip()
 
         for t in tasks:
-            title = (t["title"] or "").strip().lower()
+            title = (t["title"] or "").lower().strip()
 
             if search in title or title in search:
                 notion.pages.update(
@@ -162,7 +170,7 @@ def reply_logic(text):
 
     if text == "debug":
         tasks = get_tasks()
-        return jesse(f"DEBUG → {len(tasks)} tasks loaded from Notion")
+        return jesse(f"DEBUG → {len(tasks)} tasks found")
 
     if text == "list":
         tasks = pending_tasks()
@@ -170,17 +178,17 @@ def reply_logic(text):
             return jesse("No tasks found.")
         return jesse("Backlog:\n- " + "\n- ".join(t["title"] for t in tasks))
 
-    if text == "focus":
-        task = top_task()
-        return jesse(f"Do this → {task}") if task else jesse("No tasks.")
-
     if text.startswith("add "):
         ok = save_task(text[4:].strip())
-        return jesse("Task added.") if ok else jesse("Failed to add task.")
+        return jesse("Task added.") if ok else jesse("Add failed.")
 
     if text.startswith("done "):
         ok = mark_done(text[5:].strip())
-        return jesse("Task done.") if ok else jesse("Couldn't find task.")
+        return jesse("Task done.") if ok else jesse("Not found.")
+
+    if text == "focus":
+        task = top_task()
+        return jesse(f"Do this → {task}") if task else jesse("No tasks.")
 
     return jesse("Noted.")
 
