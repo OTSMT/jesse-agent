@@ -8,6 +8,9 @@ from notion_client import Client
 
 print("BOT STARTED")
 
+# -------------------------
+# ENV
+# -------------------------
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DB_ID = os.getenv("NOTION_DB_ID")
@@ -24,37 +27,37 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# DEBUG DB ON START
+# GIFS (SAFE MODE)
 # -------------------------
-try:
-    db = notion.databases.retrieve(database_id=NOTION_DB_ID)
-    print("==== DB CONNECTED ====")
-    print("DB TITLE:", db.get("title"))
-except Exception as e:
-    print("DB ERROR:", e)
+JESSE_GIFS = {
+    "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
+    "done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
+    "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
+}
+
+DEFAULT_GIF = "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
+
+async def send_gif(update: Update, key: str):
+    try:
+        gif = JESSE_GIFS.get(key, DEFAULT_GIF)
+        await update.message.reply_animation(animation=gif)
+    except Exception as e:
+        print("GIF ERROR:", e)
 
 # -------------------------
-# FETCH TASKS (DEBUG ADDED)
+# NOTION CORE
 # -------------------------
 def get_tasks():
     try:
         res = notion.databases.query(database_id=NOTION_DB_ID)
-
-        results = res.get("results", [])
-
-        print("==== LIST DEBUG ====")
-        print("Tasks returned:", len(results))
-
-        return results
-
+        tasks = res.get("results", [])
+        print("DEBUG → Tasks returned:", len(tasks))
+        return tasks
     except Exception as e:
         print("QUERY ERROR:", e)
         traceback.print_exc()
         return []
 
-# -------------------------
-# SAFE TITLE
-# -------------------------
 def extract_title(page):
     try:
         for v in page.get("properties", {}).values():
@@ -65,9 +68,6 @@ def extract_title(page):
         pass
     return "UNKNOWN"
 
-# -------------------------
-# SAFE STATUS
-# -------------------------
 def extract_status(page):
     try:
         for v in page.get("properties", {}).values():
@@ -79,30 +79,28 @@ def extract_status(page):
         pass
     return ""
 
-# -------------------------
-# FILTERS
-# -------------------------
 def pending_tasks():
     tasks = get_tasks()
-    filtered = [t for t in tasks if extract_status(t) != "done"]
-
-    print("Pending tasks:", len(filtered))
-    return filtered
+    return [t for t in tasks if extract_status(t) != "done"]
 
 def top_task():
     tasks = pending_tasks()
     return extract_title(tasks[0]) if tasks else None
 
 # -------------------------
-# ADD TASK
+# NOTION WRITE
 # -------------------------
 def save_task(text):
     try:
         notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
-                "Task": {"title": [{"text": {"content": text}}]},
-                "Status": {"select": {"name": "Pending"}},
+                "Task": {
+                    "title": [{"text": {"content": text}}]
+                },
+                "Status": {
+                    "select": {"name": "Pending"}
+                },
             },
         )
         print("TASK ADDED:", text)
@@ -110,9 +108,6 @@ def save_task(text):
         print("ADD ERROR:", e)
         traceback.print_exc()
 
-# -------------------------
-# DONE TASK
-# -------------------------
 def mark_done(name):
     try:
         tasks = get_tasks()
@@ -170,8 +165,19 @@ def reply(text):
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = update.message.text.strip()
+
         response = reply(text)
+
+        # GIF triggers (safe, non-blocking)
+        if text.startswith("add "):
+            await send_gif(update, "add")
+        elif text.startswith("done "):
+            await send_gif(update, "done")
+        elif text == "focus":
+            await send_gif(update, "focus")
+
         await update.message.reply_text(response)
+
     except Exception as e:
         print("HANDLER ERROR:", e)
         traceback.print_exc()
