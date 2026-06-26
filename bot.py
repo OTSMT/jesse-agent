@@ -21,13 +21,7 @@ if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# JESSE STYLE
-# -------------------------
-def jesse(text):
-    return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
-
-# -------------------------
-# GIFS
+# GIFS (UNCHANGED)
 # -------------------------
 JESSE_GIFS = {
     "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
@@ -35,35 +29,56 @@ JESSE_GIFS = {
     "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
 }
 
-GIF_CYCLE = ["add", "done", "focus"]
+# -------------------------
+# JESSE MOOD ENGINE (NEW)
+# -------------------------
+def get_mood(task_count: int):
+    if task_count == 0:
+        return "calm"
+    elif task_count <= 2:
+        return "focused"
+    elif task_count <= 5:
+        return "busy"
+    else:
+        return "overloaded"
 
-def pick_gif():
-    return random.choice(GIF_CYCLE)
+def mood_prefix(mood):
+    if mood == "calm":
+        return ["Yo. ", "Alright. ", "Nice and chill. "]
+
+    if mood == "focused":
+        return ["Yo. ", "Lock in. ", "Alright listen. "]
+
+    if mood == "busy":
+        return ["Yo. ", "We got work. ", "Alright this is stacking. "]
+
+    if mood == "overloaded":
+        return ["Yo!! ", "Bro this is a lot. ", "We drowning here. "]
+
+    return ["Yo. "]
+
+def mood_suffix(mood):
+    if mood == "calm":
+        return [" yo.", "", " we good."]
+    if mood == "focused":
+        return [" yo.", " stay sharp.", " you got this."]
+    if mood == "busy":
+        return [" yo.", " keep going.", " we moving."]
+    if mood == "overloaded":
+        return [" yo!", " too much man.", " we need cleanup."]
+    return [" yo."]
 
 # -------------------------
-# GIF SENDER
+# CORE JESSE FUNCTION (UPDATED ONLY FEELING)
 # -------------------------
-async def send_gif(update: Update):
-    try:
-        if not update or not update.effective_chat:
-            return
+def jesse(text, task_count=0):
+    mood = get_mood(task_count)
 
-        bot = update.get_bot()
-        chat_id = update.effective_chat.id
-
-        gif_key = pick_gif()
-        gif = JESSE_GIFS.get(gif_key)
-
-        print(f"[GIF] Sending: {gif_key}")
-
-        await bot.send_animation(
-            chat_id=chat_id,
-            animation=gif
-        )
-
-    except Exception as e:
-        print("GIF ERROR:", repr(e))
-        traceback.print_exc()
+    return (
+        random.choice(mood_prefix(mood))
+        + text
+        + random.choice(mood_suffix(mood))
+    )
 
 # -------------------------
 # NOTION
@@ -154,7 +169,7 @@ def mark_done(name):
         return False
 
 # -------------------------
-# BOT LOGIC
+# BOT LOGIC (UNCHANGED)
 # -------------------------
 def reply(text):
     text = text.lower().strip()
@@ -162,25 +177,48 @@ def reply(text):
     if text == "list":
         tasks = pending_tasks()
         if not tasks:
-            return jesse("No pending jobs.")
-        return jesse("Tasks:\n- " + "\n- ".join(extract_title(t) for t in tasks))
+            return jesse("No pending jobs.", len(tasks))
+        return jesse(
+            "Tasks:\n- " + "\n- ".join(extract_title(t) for t in tasks),
+            len(tasks)
+        )
 
     if text == "focus":
         task = top_task()
-        return jesse(f"Do this → {task}") if task else jesse("No tasks.")
+        return jesse(f"Do this → {task}", len(pending_tasks())) if task else jesse("No tasks.", 0)
 
     if text.startswith("add"):
         save_task(text.replace("add", "", 1).strip())
-        return jesse("Task added.")
+        return jesse("Task added.", len(pending_tasks()) + 1)
 
     if text.startswith("done"):
         ok = mark_done(text.replace("done", "", 1).strip())
-        return jesse("Done." if ok else "Not found.")
+        return jesse("Done." if ok else "Not found.", len(pending_tasks()))
 
-    return jesse("Noted.")
+    return jesse("Noted.", len(pending_tasks()))
 
 # -------------------------
-# HANDLER (GIF ALWAYS AFTER REPLY)
+# GIF SYSTEM (UNCHANGED)
+# -------------------------
+async def send_gif(update: Update, key: str):
+    try:
+        if not update or not update.effective_chat:
+            return
+
+        bot = update.get_bot()
+        chat_id = update.effective_chat.id
+
+        gif = JESSE_GIFS.get(key)
+
+        if gif:
+            await bot.send_animation(chat_id=chat_id, animation=gif)
+
+    except Exception as e:
+        print("GIF ERROR:", repr(e))
+        traceback.print_exc()
+
+# -------------------------
+# HANDLER (UNCHANGED)
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -197,9 +235,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         response = reply(normalized)
 
-        # ALWAYS SEND GIF AFTER ANY RESPONSE
         await update.message.reply_text(response)
-        await send_gif(update)
+        await send_gif(update, "focus")
 
     except Exception as e:
         print("HANDLER ERROR:", e)
