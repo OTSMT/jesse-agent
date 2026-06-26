@@ -19,7 +19,7 @@ if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
     raise ValueError("Missing env vars")
 
 # -------------------------
-# NOTION
+# NOTION CLIENT
 # -------------------------
 notion = Client(auth=NOTION_API_KEY)
 
@@ -41,7 +41,7 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION SAFE READ (FIXED CORE ISSUE)
+# NOTION READ (FIXED)
 # -------------------------
 def get_tasks():
     try:
@@ -57,33 +57,20 @@ def get_tasks():
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # -------------------------
-            # AUTO-DETECT TITLE FIELD
-            # -------------------------
+            # TITLE (Task Type)
+            title_prop = props.get("Task Type", {}).get("title", [])
             title = "UNKNOWN TASK"
 
-            for _, value in props.items():
-                if value.get("type") == "title":
-                    title_list = value.get("title", [])
-                    if title_list:
-                        title = (
-                            title_list[0].get("plain_text")
-                            or title_list[0].get("text", {}).get("content")
-                            or "UNKNOWN TASK"
-                        )
-                    break
+            if title_prop:
+                title = (
+                    title_prop[0].get("plain_text")
+                    or title_prop[0].get("text", {}).get("content")
+                    or "UNKNOWN TASK"
+                )
 
-            # -------------------------
-            # AUTO-DETECT STATUS FIELD
-            # -------------------------
-            status = "pending"
-
-            for _, value in props.items():
-                if value.get("type") == "select":
-                    status_obj = value.get("select")
-                    if status_obj and status_obj.get("name"):
-                        status = status_obj["name"].lower().strip()
-                    break
+            # STATUS (Status Type)
+            status_obj = props.get("Status Type", {}).get("select")
+            status = status_obj.get("name").lower().strip() if status_obj else "pending"
 
             print(f"FOUND → {title} | {status}")
 
@@ -113,7 +100,7 @@ def top_task():
     return tasks[0]["title"] if tasks else None
 
 # -------------------------
-# SAVE TASK
+# SAVE TASK (FIXED)
 # -------------------------
 def save_task(task):
     try:
@@ -122,20 +109,13 @@ def save_task(task):
         notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
-                # we DO NOT assume property name anymore
-                "Task": {
+                "Task Type": {
                     "title": [
-                        {
-                            "text": {
-                                "content": task
-                            }
-                        }
+                        {"text": {"content": task}}
                     ]
                 },
-                "Status": {
-                    "select": {
-                        "name": "Pending"
-                    }
+                "Status Type": {
+                    "select": {"name": "Pending"}
                 },
             },
         )
@@ -145,6 +125,41 @@ def save_task(task):
 
     except Exception as e:
         print("CREATE FAILED")
+        print(e)
+        traceback.print_exc()
+        return False
+
+# -------------------------
+# DONE TASK (FIXED)
+# -------------------------
+def mark_done(task_name):
+    try:
+        results = notion.databases.query(
+            database_id=NOTION_DB_ID,
+            filter={
+                "property": "Task Type",
+                "title": {"contains": task_name}
+            }
+        )
+
+        if not results.get("results"):
+            return False
+
+        page_id = results["results"][0]["id"]
+
+        notion.pages.update(
+            page_id=page_id,
+            properties={
+                "Status Type": {
+                    "select": {"name": "Done"}
+                }
+            }
+        )
+
+        return True
+
+    except Exception as e:
+        print("DONE ERROR")
         print(e)
         traceback.print_exc()
         return False
@@ -185,38 +200,8 @@ def reply_logic(text):
         return jesse("Task added.") if ok else jesse("Couldn't save task.")
 
     if text.startswith("done "):
-        task_name = text[5:].strip()
-
-        try:
-            results = notion.databases.query(
-                database_id=NOTION_DB_ID,
-                filter={
-                    "property": "Task",
-                    "title": {"contains": task_name}
-                }
-            )
-
-            if not results.get("results"):
-                return jesse("Couldn't find task.")
-
-            page_id = results["results"][0]["id"]
-
-            notion.pages.update(
-                page_id=page_id,
-                properties={
-                    "Status": {
-                        "select": {"name": "Done"}
-                    }
-                }
-            )
-
-            return jesse("Task completed.")
-
-        except Exception as e:
-            print("DONE ERROR")
-            print(e)
-            traceback.print_exc()
-            return jesse("Update failed.")
+        ok = mark_done(text[5:].strip())
+        return jesse("Task completed.") if ok else jesse("Couldn't find task.")
 
     return jesse("Noted.")
 
