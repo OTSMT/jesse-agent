@@ -21,15 +21,6 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# GIFS
-# -------------------------
-JESSE_GIFS = {
-    "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
-    "done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
-    "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
-}
-
-# -------------------------
 # MEMORY
 # -------------------------
 MEM_FILE = "jesse_memory.json"
@@ -47,7 +38,19 @@ def load_memory():
             "last_day": None,
             "weekly_added": 0,
             "weekly_done": 0,
-            "week_start": time.time()
+            "week_start": time.time(),
+
+            "trust": 5,
+            "failures": 0,
+
+            # existing learning
+            "ignore_map": {},
+
+            # -------------------------
+            # NEW: emotional memory layer
+            # -------------------------
+            "relationship": "neutral",
+            "recent_performance": [],  # rolling window (0/1 success)
         }
 
 MEMORY = load_memory()
@@ -57,7 +60,7 @@ def save_memory():
         json.dump(MEMORY, f)
 
 # -------------------------
-# STREAK + WEEK
+# STREAK / WEEK (UNCHANGED)
 # -------------------------
 def update_streak():
     today = datetime.date.today().isoformat()
@@ -85,12 +88,11 @@ def update_activity():
         MEMORY["streak"] = max(0, MEMORY["streak"] - 1)
 
     MEMORY["last_seen"] = now
-
     update_streak()
     update_week()
 
 # -------------------------
-# NOTION
+# NOTION (UNCHANGED)
 # -------------------------
 def get_tasks():
     try:
@@ -144,20 +146,42 @@ def mark_done(name):
     return False
 
 # -------------------------
-# PERSONALITY
+# NEW: EMOTIONAL MEMORY ENGINE
 # -------------------------
-def get_personality():
-    ratio = MEMORY["tasks_done"] / max(1, MEMORY["tasks_added"])
+def update_recent(success: bool):
+    MEMORY["recent_performance"].append(1 if success else 0)
 
-    if MEMORY["streak"] >= 5:
-        return "disciplined"
-    if ratio < 0.3:
-        return "chaotic"
-    if MEMORY["tasks_added"] > 10:
-        return "experienced"
+    # keep last 10 actions only (lightweight memory window)
+    if len(MEMORY["recent_performance"]) > 10:
+        MEMORY["recent_performance"].pop(0)
 
-    return "balanced"
+def get_recent_score():
+    if not MEMORY["recent_performance"]:
+        return 0.5
+    return sum(MEMORY["recent_performance"]) / len(MEMORY["recent_performance"])
 
+def update_relationship():
+    score = get_recent_score()
+    trust = MEMORY["trust"]
+
+    if score > 0.8 and trust >= 7:
+        MEMORY["relationship"] = "proud"
+    elif score > 0.6:
+        MEMORY["relationship"] = "supportive"
+    elif score > 0.4:
+        MEMORY["relationship"] = "neutral"
+    elif score > 0.2:
+        MEMORY["relationship"] = "disappointed"
+    else:
+        MEMORY["relationship"] = "strict"
+
+def get_relationship():
+    update_relationship()
+    return MEMORY["relationship"]
+
+# -------------------------
+# PERSONALITY CORE
+# -------------------------
 def mood(task_count):
     if task_count == 0:
         return "calm"
@@ -167,142 +191,88 @@ def mood(task_count):
         return "busy"
     return "overloaded"
 
+def arc():
+    s = MEMORY["streak"]
+    if s <= 1:
+        return "chaos"
+    if s <= 4:
+        return "hustler"
+    if s <= 9:
+        return "disciplined"
+    return "machine"
+
 def jesse(text, task_count):
-    p = get_personality()
+    rel = get_relationship()
+    a = arc()
     m = mood(task_count)
 
-    prefix = {
-        "balanced": ["Yo. ", "Alright. ", "Aight. "],
-        "experienced": ["Back again. ", "Same thing huh. ", "We back. "],
-        "disciplined": ["I respect it. ", "Locked in. ", "No distractions. "],
-        "chaotic": ["Bro… ", "This is wild. ", "Yo what 😭 "],
-    }.get(p, ["Yo. "])
+    base = {
+        "chaos": ["Yo… ", "Bro… "],
+        "hustler": ["Yo. ", "Aight. "],
+        "disciplined": ["Locked in. ", "Respect. "],
+        "machine": ["No stopping. ", "Execution. "],
+    }.get(a, ["Yo. "])
 
-    mood_prefix = {
-        "calm": ["Chill. ", "Alright. ", "We good. "],
-        "focused": ["Lock in. ", "Listen. ", "Focus up. "],
-        "busy": ["We moving. ", "Keep going. ", "Grinding. "],
-        "overloaded": ["Yo this is a lot. ", "We cooked. ", "Too much. "],
-    }.get(m, ["Yo. "])
+    relation_layer = {
+        "proud": ["Proud of you. ", "This is clean. "],
+        "supportive": ["Good work. ", "We steady. "],
+        "neutral": [""],
+        "disappointed": ["Hmm. ", "We slipping. "],
+        "strict": ["Bro listen. ", "Fix this. "],
+    }.get(rel, [""])
 
     suffix = {
-        "calm": [" we good.", "", " all good."],
-        "focused": [" stay sharp.", " you got this.", " don’t slack."],
-        "busy": [" keep going.", " we in it.", " no stopping now."],
-        "overloaded": [" we need cleanup.", " too much man.", " reset needed."],
-    }.get(m, [" yo."])
+        "calm": [".", " We good."],
+        "focused": [" Stay sharp.", " Lock in."],
+        "busy": [" Keep going.", " Don’t stop."],
+        "overloaded": [" Fix this.", " Too much."],
+    }.get(m, [""])
 
-    return random.choice(prefix + mood_prefix) + text + random.choice(suffix)
+    return random.choice(base + relation_layer) + text + random.choice(suffix)
 
 # -------------------------
-# REPLY (UPDATED ONLY HERE)
+# REPLY
 # -------------------------
 def reply(text):
     task_count = len(pending_tasks())
     t = text.lower().strip()
 
-    # -------------------------
-    # GREETINGS (EXPANDED)
-    # -------------------------
-    if any(x in t for x in ["yo jesse", "hey jesse", "jesse", "yo"]):
-        return jesse(random.choice([
-            "yo. what's up?",
-            "yeah?",
-            "sup?",
-            "yo yo. what's happening?",
-            "what's cookin'?",
-            "you rang?",
-            "what's the move today?",
-            "we working or what?",
-            "talk to me.",
-            "what’s good?"
-        ]), task_count)
-
-    # -------------------------
-    # GRATITUDE (EXPANDED)
-    # -------------------------
-    if any(x in t for x in ["thanks", "thank you", "thx"]):
-        return jesse(random.choice([
-            "yeah. anytime.",
-            "got you.",
-            "no problem.",
-            "say less.",
-            "all good.",
-            "don’t mention it.",
-            "we move.",
-            "easy.",
-            "you know it."
-        ]), task_count)
-
-    # -------------------------
-    # POSITIVE FEEDBACK
-    # -------------------------
-    if any(x in t for x in ["good job", "nice", "well done"]):
-        return jesse(random.choice([
-            "appreciate it.",
-            "we keep going.",
-            "that’s the energy.",
-            "respect.",
-            "let’s keep stacking wins.",
-            "we don’t stop here.",
-            "yeah we moving right.",
-            "solid."
-        ]), task_count)
-
-    # -------------------------
-    # LAUGH / REACTION
-    # -------------------------
-    if "lol" in t:
-        return jesse(random.choice([
-            "yeah that’s wild.",
-            "I’m dead 😭",
-            "bro no way.",
-            "nah that’s funny.",
-            "you got me there.",
-            "fair enough.",
-            "okay okay."
-        ]), task_count)
-
-    # -------------------------
-    # EXISTING COMMANDS (UNCHANGED)
-    # -------------------------
-    if t == "list":
-        return jesse(
-            "Tasks:\n- " + "\n- ".join(extract_title(x) for x in pending_tasks())
-            if task_count else "No pending jobs.",
-            task_count
-        )
-
-    if t == "focus":
-        tasks = pending_tasks()
-        return jesse(f"Do this → {extract_title(tasks[0])}" if tasks else "No tasks.", task_count)
-
-    if t.startswith("add"):
+    if any(x in t for x in ["add"]):
         save_task(t.replace("add", "", 1).strip())
         MEMORY["tasks_added"] += 1
         MEMORY["weekly_added"] += 1
+
+        update_recent(False)
         return jesse("Task added.", task_count)
 
-    if t.startswith("done"):
-        ok = mark_done(t.replace("done", "", 1).strip())
+    if any(x in t for x in ["done"]):
+        task_name = t.replace("done", "", 1).strip()
+        ok = mark_done(task_name)
+
         if ok:
             MEMORY["tasks_done"] += 1
             MEMORY["weekly_done"] += 1
+            update_recent(True)
+        else:
+            update_recent(False)
+
         return jesse("Done." if ok else "Not found.", task_count)
 
-    return jesse("Noted.", task_count)
-
-# -------------------------
-# GIF
-# -------------------------
-async def send_gif(update: Update):
-    try:
-        await update.get_bot().send_animation(
-            chat_id=update.effective_chat.id,
-            animation=random.choice(list(JESSE_GIFS.values()))
+    if t == "focus":
+        tasks = pending_tasks()
+        return jesse(
+            "Do this → " + extract_title(tasks[0]) if tasks else "No tasks.",
+            task_count
         )
-    except:
-        pass
+
+    if t == "list":
+        return jesse(
+            "Tasks:\n- " + "\n- ".join(extract_title(x) for x in pending_tasks())
+            if task_count else "No tasks.",
+            task_count
+        )
+
+    return jesse("Noted.", task_count)
 
 # -------------------------
 # HANDLER
@@ -312,13 +282,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_activity()
 
         text = update.message.text
-
         response = reply(text)
 
         save_memory()
 
         await update.message.reply_text(response)
-        await send_gif(update)
 
     except Exception as e:
         print("ERROR:", e)
