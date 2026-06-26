@@ -27,7 +27,7 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# GIFS (FIXED + STABLE)
+# GIFS
 # -------------------------
 JESSE_GIFS = {
     "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
@@ -37,23 +37,29 @@ JESSE_GIFS = {
 
 DEFAULT_GIF = JESSE_GIFS["add"]
 
+# -------------------------
+# FIXED GIF SENDER (IMPORTANT FIX)
+# -------------------------
 async def send_gif(update: Update, key: str):
     try:
-        if not update or not update.message:
-            print("GIF SKIP: no message context")
+        if not update or not update.effective_chat:
+            print("GIF SKIP: no chat context")
             return
 
         gif = JESSE_GIFS.get(key, DEFAULT_GIF)
 
         print(f"GIF SEND → {key}: {gif}")
 
-        await update.message.reply_animation(animation=gif)
+        await update.get_bot().send_animation(
+            chat_id=update.effective_chat.id,
+            animation=gif
+        )
 
     except Exception as e:
         print("GIF ERROR:", e)
 
 # -------------------------
-# NOTION FETCH (UNCHANGED WORKING VERSION)
+# NOTION
 # -------------------------
 def get_tasks():
     try:
@@ -62,7 +68,6 @@ def get_tasks():
         results = res.get("results", [])
 
         print("\n==== NOTION DEBUG ====")
-        print("DB ID:", NOTION_DB_ID)
         print("TASK COUNT:", len(results))
 
         return results
@@ -73,7 +78,7 @@ def get_tasks():
         return []
 
 # -------------------------
-# SAFE PROPERTY PARSING (UNCHANGED LOGIC)
+# PARSING
 # -------------------------
 def extract_title(page):
     try:
@@ -99,25 +104,16 @@ def extract_status(page):
         return "pending"
 
 # -------------------------
-# TASK FILTERS (WORKING)
+# LOGIC
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
-
-    result = []
-    for t in tasks:
-        if extract_status(t) != "done":
-            result.append(t)
-
-    return result
+    return [t for t in tasks if extract_status(t) != "done"]
 
 def top_task():
     tasks = pending_tasks()
     return extract_title(tasks[0]) if tasks else None
 
-# -------------------------
-# ADD TASK (UNCHANGED)
-# -------------------------
 def save_task(text):
     try:
         notion.pages.create(
@@ -132,9 +128,6 @@ def save_task(text):
         print("ADD ERROR:", e)
         traceback.print_exc()
 
-# -------------------------
-# DONE TASK (UNCHANGED)
-# -------------------------
 def mark_done(name):
     try:
         tasks = get_tasks()
@@ -161,7 +154,7 @@ def mark_done(name):
         return False
 
 # -------------------------
-# BOT LOGIC (UNCHANGED)
+# REPLY
 # -------------------------
 def reply(text):
     text = text.lower().strip()
@@ -187,12 +180,11 @@ def reply(text):
     return jesse("Noted.")
 
 # -------------------------
-# HANDLER (ONLY GIF FIXED)
+# HANDLER
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = update.message.text.strip()
-
         response = reply(text)
 
         try:
