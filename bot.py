@@ -19,7 +19,7 @@ if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
     raise ValueError("Missing env vars")
 
 # -------------------------
-# NOTION CLIENT
+# NOTION
 # -------------------------
 notion = Client(auth=NOTION_API_KEY)
 
@@ -41,7 +41,7 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION READ (FIXED)
+# NOTION READ
 # -------------------------
 def get_tasks():
     try:
@@ -57,20 +57,13 @@ def get_tasks():
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # TITLE (Task Type)
+            # TITLE
             title_prop = props.get("Task Type", {}).get("title", [])
-            title = "UNKNOWN TASK"
+            title = title_prop[0].get("plain_text") if title_prop else "UNKNOWN TASK"
 
-            if title_prop:
-                title = (
-                    title_prop[0].get("plain_text")
-                    or title_prop[0].get("text", {}).get("content")
-                    or "UNKNOWN TASK"
-                )
-
-            # STATUS (Status Type)
+            # STATUS
             status_obj = props.get("Status Type", {}).get("select")
-            status = status_obj.get("name").lower().strip() if status_obj else "pending"
+            status = status_obj.get("name", "Pending").lower().strip() if status_obj else "pending"
 
             print(f"FOUND → {title} | {status}")
 
@@ -100,7 +93,7 @@ def top_task():
     return tasks[0]["title"] if tasks else None
 
 # -------------------------
-# SAVE TASK (FIXED)
+# SAVE TASK
 # -------------------------
 def save_task(task):
     try:
@@ -116,8 +109,8 @@ def save_task(task):
                 },
                 "Status Type": {
                     "select": {"name": "Pending"}
-                },
-            },
+                }
+            }
         )
 
         print("TASK CREATED")
@@ -130,7 +123,7 @@ def save_task(task):
         return False
 
 # -------------------------
-# DONE TASK (FIXED)
+# MARK DONE
 # -------------------------
 def mark_done(task_name):
     try:
