@@ -34,59 +34,60 @@ DEFAULT_GIFS = [
     "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",
 ]
 
-# -------------------------
-# JESSE STYLE (UNCHANGED)
-# -------------------------
 def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
+
+# -------------------------
+# LOAD DB SCHEMA ON START (IMPORTANT FIX)
+# -------------------------
+db_schema = notion.databases.retrieve(database_id=NOTION_DB_ID)
+properties = db_schema["properties"]
+
+TASK_PROP = None
+STATUS_PROP = None
+
+for name, prop in properties.items():
+    if prop["type"] == "title":
+        TASK_PROP = name
+    if prop["type"] == "select":
+        STATUS_PROP = name
+
+print("==== SCHEMA DETECTED ====")
+print("TASK_PROP:", TASK_PROP)
+print("STATUS_PROP:", STATUS_PROP)
 
 # -------------------------
 # NOTION FETCH
 # -------------------------
 def get_tasks():
     try:
-        results = notion.databases.query(database_id=NOTION_DB_ID)
-        return results.get("results", [])
+        return notion.databases.query(database_id=NOTION_DB_ID).get("results", [])
     except Exception:
         traceback.print_exc()
         return []
 
 # -------------------------
-# UNIVERSAL TITLE PARSER (FIXED)
+# EXTRACT TITLE (SAFE)
 # -------------------------
 def extract_title(page):
     try:
-        props = page.get("properties", {})
-
-        for prop in props.values():
-            if prop.get("type") == "title":
-                title = prop.get("title", [])
-                if title:
-                    return title[0].get("plain_text", "UNKNOWN")
-
-        return "UNKNOWN"
+        title_data = page["properties"][TASK_PROP]["title"]
+        return title_data[0]["plain_text"] if title_data else "UNKNOWN"
     except:
         return "UNKNOWN"
 
 # -------------------------
-# UNIVERSAL STATUS PARSER (FIXED)
+# EXTRACT STATUS (SAFE)
 # -------------------------
 def extract_status(page):
     try:
-        props = page.get("properties", {})
-
-        for prop in props.values():
-            if prop.get("type") == "select":
-                sel = prop.get("select")
-                if sel:
-                    return sel.get("name", "").lower()
-
-        return ""
+        sel = page["properties"][STATUS_PROP]["select"]
+        return sel["name"].lower() if sel else ""
     except:
         return ""
 
 # -------------------------
-# TASK FILTERS
+# FILTERS
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
@@ -104,28 +105,28 @@ def save_task(task):
         notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
-                "Task": {"title": [{"text": {"content": task}}]},
-                "Status": {"select": {"name": "Pending"}},
+                TASK_PROP: {"title": [{"text": {"content": task}}]},
+                STATUS_PROP: {"select": {"name": "Pending"}},
             },
         )
     except Exception:
         traceback.print_exc()
 
 # -------------------------
-# MARK DONE (FIXED SEARCH RELIABLY)
+# MARK DONE
 # -------------------------
 def mark_done(task_name):
     try:
         results = notion.databases.query(database_id=NOTION_DB_ID)
 
-        for page in results.get("results", []):
+        for page in results["results"]:
             title = extract_title(page)
 
-            if task_name.strip().lower() == title.strip().lower():
+            if task_name.lower().strip() == title.lower().strip():
                 notion.pages.update(
                     page_id=page["id"],
                     properties={
-                        "Status": {"select": {"name": "Done"}}
+                        STATUS_PROP: {"select": {"name": "Done"}}
                     },
                 )
                 return True
@@ -137,38 +138,32 @@ def mark_done(task_name):
         return False
 
 # -------------------------
-# CORE LOGIC (UNCHANGED)
+# LOGIC
 # -------------------------
 def reply_logic(text):
     text = text.lower().strip()
 
     if text == "focus":
         task = top_task()
-        return jesse(f"Do this right now → {task}") if task else jesse("No tasks. You're free.")
-
-    if text == "today":
-        tasks = pending_tasks()[:3]
-        if not tasks:
-            return jesse("Nothing on your plate.")
-        return jesse("Top priorities:\n- " + "\n- ".join(extract_title(t) for t in tasks))
-
-    if text.startswith("add "):
-        save_task(text[4:].strip())
-        return jesse("Task added.")
+        return jesse(f"Do this → {task}") if task else jesse("No tasks.")
 
     if text == "list":
         tasks = pending_tasks()
         if not tasks:
             return jesse("No pending jobs.")
-        return jesse("Your backlog:\n- " + "\n- ".join(extract_title(t) for t in tasks))
+        return jesse("Backlog:\n- " + "\n- ".join(extract_title(t) for t in tasks))
+
+    if text.startswith("add "):
+        save_task(text[4:].strip())
+        return jesse("Task added.")
 
     if text == "help":
-        return jesse("add <task>, done <task>, focus, today, list, db")
+        return jesse("add, list, done, focus")
 
-    return jesse(random.choice(["Noted.", "Alright.", "Got it.", "Say less.", "I'm tracking it."]))
+    return jesse("Noted.")
 
 # -------------------------
-# GIF SENDER (FIXED)
+# GIF
 # -------------------------
 async def send_gif(update: Update, key: str):
     try:
@@ -179,7 +174,6 @@ async def send_gif(update: Update, key: str):
         await update.message.reply_animation(animation=file_id)
 
     except Exception:
-        print("GIF ERROR")
         traceback.print_exc()
 
 # -------------------------
@@ -202,10 +196,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif text.lower() == "focus":
             gif_key = "focus"
 
-        # DONE HANDLING
         if text.lower().startswith("done "):
             ok = mark_done(text[5:].strip())
-            reply = jesse("Task completed." if ok else "Couldn't find that task.")
+            reply = jesse("Done." if ok else "Can't find it.")
         else:
             reply = reply_logic(text)
 
