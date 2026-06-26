@@ -41,41 +41,40 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION FETCH (FIXED)
+# NOTION FETCH (FIXED + DEBUG SAFE)
 # -------------------------
 def get_tasks():
     try:
         print("→ Calling Notion...")
 
-        # FIX: compatible query method across notion-client versions
-        try:
-            results = notion.databases.query(
-                database_id=NOTION_DB_ID,
-                page_size=100
-            )
-        except AttributeError:
-            # fallback for older SDK versions
-            results = notion.request(
-                "POST",
-                f"https://api.notion.com/v1/databases/{NOTION_DB_ID}/query",
-                json={"page_size": 100},
-            )
+        results = notion.databases.query(
+            database_id=NOTION_DB_ID,
+            page_size=100
+        )
 
         tasks = []
 
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # IMPORTANT: your DB property names
+            # TASK TITLE
             title_prop = props.get("Task", {}).get("title", [])
             title = title_prop[0].get("plain_text") if title_prop else "UNKNOWN TASK"
 
+            # STATUS (SAFE FALLBACK)
             status_obj = props.get("Status", {}).get("select")
-            status = status_obj.get("name") if status_obj else ""
+            status = "pending"
+
+            if status_obj and status_obj.get("name"):
+                status = status_obj.get("name")
+
+            status = status.lower().strip()
+
+            print(f"FOUND → {title} | STATUS → {status}")
 
             tasks.append({
                 "title": title,
-                "status": status.lower().strip()
+                "status": status
             })
 
         print(f"→ TASK COUNT: {len(tasks)}")
@@ -88,18 +87,20 @@ def get_tasks():
         return []
 
 # -------------------------
-# FILTER
+# FILTER (FIXED)
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
-    return [t for t in tasks if (t.get("status") or "") != "done"]
+
+    # ONLY hide explicitly done tasks
+    return [t for t in tasks if t.get("status") != "done"]
 
 def top_task():
     tasks = pending_tasks()
     return tasks[0]["title"] if tasks else None
 
 # -------------------------
-# SAVE TASK
+# SAVE TASK (UNCHANGED BUT SAFE)
 # -------------------------
 def save_task(task):
     try:
@@ -159,8 +160,10 @@ def reply_logic(text):
 
     if text == "list":
         tasks = pending_tasks()
+
         if not tasks:
             return jesse("No tasks found.")
+
         return jesse("Backlog:\n- " + "\n- ".join(t["title"] for t in tasks))
 
     if text == "focus":
