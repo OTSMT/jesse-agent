@@ -27,7 +27,7 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# GIFS
+# SELF-HEALING GIF SYSTEM
 # -------------------------
 JESSE_GIFS = {
     "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
@@ -35,36 +35,71 @@ JESSE_GIFS = {
     "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
 }
 
-DEFAULT_GIF = JESSE_GIFS["add"]
+GIF_URLS = {
+    "add": "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",
+    "done": "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
+    "focus": "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
+}
 
-# -------------------------
-# FIXED GIF SENDER (IMPORTANT FIX)
-# -------------------------
 async def send_gif(update: Update, key: str):
     try:
         if not update or not update.effective_chat:
             print("GIF SKIP: no chat context")
             return
 
-        gif = JESSE_GIFS.get(key, DEFAULT_GIF)
+        bot = update.get_bot()
+        chat_id = update.effective_chat.id
 
-        print(f"GIF SEND → {key}: {gif}")
+        gif_id = JESSE_GIFS.get(key)
+        gif_url = GIF_URLS.get(key)
 
-        await update.get_bot().send_animation(
-            chat_id=update.effective_chat.id,
-            animation=gif
-        )
+        print(f"GIF TRY → {key}")
+
+        # -------------------------
+        # 1. TRY FILE_ID FIRST
+        # -------------------------
+        if gif_id:
+            try:
+                await bot.send_animation(
+                    chat_id=chat_id,
+                    animation=gif_id
+                )
+                print("GIF OK (file_id)")
+                return
+            except Exception as e:
+                print("GIF file_id failed:", e)
+
+        # -------------------------
+        # 2. FALLBACK TO URL
+        # -------------------------
+        if gif_url:
+            try:
+                msg = await bot.send_animation(
+                    chat_id=chat_id,
+                    animation=gif_url
+                )
+                print("GIF OK (URL fallback)")
+
+                # -------------------------
+                # AUTO-HEAL: save new file_id
+                # -------------------------
+                if msg and msg.animation:
+                    new_id = msg.animation.file_id
+                    JESSE_GIFS[key] = new_id
+                    print(f"GIF HEALED → updated file_id for '{key}'")
+
+            except Exception as e:
+                print("GIF URL fallback failed:", e)
 
     except Exception as e:
-        print("GIF ERROR:", e)
+        print("GIF SYSTEM ERROR:", e)
 
 # -------------------------
-# NOTION
+# NOTION FETCH (UNCHANGED)
 # -------------------------
 def get_tasks():
     try:
         res = notion.databases.query(database_id=NOTION_DB_ID)
-
         results = res.get("results", [])
 
         print("\n==== NOTION DEBUG ====")
@@ -78,7 +113,7 @@ def get_tasks():
         return []
 
 # -------------------------
-# PARSING
+# PARSING (UNCHANGED)
 # -------------------------
 def extract_title(page):
     try:
@@ -104,7 +139,7 @@ def extract_status(page):
         return "pending"
 
 # -------------------------
-# LOGIC
+# LOGIC (UNCHANGED)
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
@@ -154,7 +189,7 @@ def mark_done(name):
         return False
 
 # -------------------------
-# REPLY
+# REPLY (UNCHANGED)
 # -------------------------
 def reply(text):
     text = text.lower().strip()
