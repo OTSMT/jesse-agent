@@ -30,7 +30,7 @@ JESSE_GIFS = {
 }
 
 # -------------------------
-# MEMORY (SINGLE USER)
+# MEMORY
 # -------------------------
 MEM_FILE = "jesse_memory.json"
 
@@ -151,10 +151,8 @@ def get_personality():
 
     if MEMORY["streak"] >= 5:
         return "disciplined"
-
     if ratio < 0.3:
         return "chaotic"
-
     if MEMORY["tasks_added"] > 10:
         return "experienced"
 
@@ -197,30 +195,52 @@ def jesse(text, task_count):
     return random.choice(prefix + mood_prefix) + text + random.choice(suffix)
 
 # -------------------------
-# REPLY
+# REPLY (UPDATED: GREETING + REACTIONS ADDED)
 # -------------------------
 def reply(text):
     task_count = len(pending_tasks())
+    t = text.lower().strip()
 
-    if text == "list":
+    # -------------------------
+    # NEW: GREETINGS
+    # -------------------------
+    if any(x in t for x in ["yo jesse", "hey jesse", "jesse", "yo"]):
+        return jesse("yo. what’s up?", task_count)
+
+    # -------------------------
+    # NEW: REACTIONS
+    # -------------------------
+    if any(x in t for x in ["thanks", "thank you", "thx"]):
+        return jesse("yeah. anytime.", task_count)
+
+    if any(x in t for x in ["good job", "nice", "well done"]):
+        return jesse("appreciate it. we keep going.", task_count)
+
+    if "lol" in t:
+        return jesse("yeah that’s wild.", task_count)
+
+    # -------------------------
+    # EXISTING COMMANDS (UNCHANGED)
+    # -------------------------
+    if t == "list":
         return jesse(
-            "Tasks:\n- " + "\n- ".join(extract_title(t) for t in pending_tasks())
+            "Tasks:\n- " + "\n- ".join(extract_title(x) for x in pending_tasks())
             if task_count else "No pending jobs.",
             task_count
         )
 
-    if text == "focus":
-        t = pending_tasks()
-        return jesse(f"Do this → {extract_title(t[0])}" if t else "No tasks.", task_count)
+    if t == "focus":
+        tasks = pending_tasks()
+        return jesse(f"Do this → {extract_title(tasks[0])}" if tasks else "No tasks.", task_count)
 
-    if text.startswith("add"):
-        save_task(text.replace("add", "", 1).strip())
+    if t.startswith("add"):
+        save_task(t.replace("add", "", 1).strip())
         MEMORY["tasks_added"] += 1
         MEMORY["weekly_added"] += 1
         return jesse("Task added.", task_count)
 
-    if text.startswith("done"):
-        ok = mark_done(text.replace("done", "", 1).strip())
+    if t.startswith("done"):
+        ok = mark_done(t.replace("done", "", 1).strip())
         if ok:
             MEMORY["tasks_done"] += 1
             MEMORY["weekly_done"] += 1
@@ -247,7 +267,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         update_activity()
 
-        text = update.message.text.lower().strip()
+        text = update.message.text
 
         response = reply(text)
 
