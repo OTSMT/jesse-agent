@@ -41,7 +41,43 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# SAFE NOTION FIELD DETECTION
+# DEBUG NOTION
+# -------------------------
+def debug_notion():
+    try:
+        db = notion.databases.retrieve(database_id=NOTION_DB_ID)
+        props = db.get("properties", {})
+
+        lines = ["📦 NOTION DATABASE SCHEMA:"]
+
+        for name, info in props.items():
+            lines.append(f"- {name} → {info.get('type')}")
+
+        results = notion.databases.query(
+            database_id=NOTION_DB_ID,
+            page_size=5
+        )
+
+        lines.append("\n📋 SAMPLE TASKS:")
+
+        for r in results.get("results", []):
+            title = "UNKNOWN"
+
+            for _, v in r.get("properties", {}).items():
+                if v.get("type") == "title":
+                    t = v.get("title", [])
+                    if t:
+                        title = t[0].get("plain_text", "UNKNOWN")
+
+            lines.append(f"- {title}")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"❌ DEBUG FAILED:\n{e}"
+
+# -------------------------
+# SAFE NOTION PARSING
 # -------------------------
 def extract_title(props):
     for _, v in props.items():
@@ -65,8 +101,6 @@ def extract_status(props):
 # -------------------------
 def get_tasks():
     try:
-        print("→ Calling Notion...")
-
         results = notion.databases.query(
             database_id=NOTION_DB_ID,
             page_size=100
@@ -77,17 +111,11 @@ def get_tasks():
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            title = extract_title(props)
-            status = extract_status(props)
-
-            print(f"FOUND → {title} | {status}")
-
             tasks.append({
-                "title": title,
-                "status": status
+                "title": extract_title(props),
+                "status": extract_status(props)
             })
 
-        print(f"→ TASK COUNT: {len(tasks)}")
         return tasks
 
     except Exception as e:
@@ -111,24 +139,17 @@ def top_task():
 # -------------------------
 def save_task(task):
     try:
-        print(f"→ Saving task: {task}")
-
         notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
-                # title field (auto-detected by Notion anyway)
                 "Task Type": {
-                    "title": [
-                        {"text": {"content": task}}
-                    ]
+                    "title": [{"text": {"content": task}}]
                 },
                 "Status Type": {
                     "select": {"name": "Pending"}
                 }
             }
         )
-
-        print("TASK CREATED")
         return True
 
     except Exception as e:
@@ -138,7 +159,7 @@ def save_task(task):
         return False
 
 # -------------------------
-# DONE TASK
+# MARK DONE
 # -------------------------
 def mark_done(task_name):
     try:
@@ -184,7 +205,6 @@ async def send_gif(update: Update, key: str):
         await update.message.reply_animation(animation=file_id)
 
     except Exception:
-        print("GIF ERROR")
         traceback.print_exc()
 
 # -------------------------
@@ -192,6 +212,9 @@ async def send_gif(update: Update, key: str):
 # -------------------------
 def reply_logic(text):
     text = text.lower().strip()
+
+    if text == "debug":
+        return debug_notion()
 
     if text == "list":
         tasks = pending_tasks()
@@ -238,18 +261,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(reply)
 
     except Exception:
-        print("HANDLER ERROR")
         traceback.print_exc()
 
 # -------------------------
 # MAIN
 # -------------------------
 def main():
-    print("RUNNING BOT")
-
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-
     app.run_polling()
 
 if __name__ == "__main__":
