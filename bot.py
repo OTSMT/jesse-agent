@@ -41,27 +41,7 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# DEBUG NOTION SCHEMA (RUNS ON START)
-# -------------------------
-def debug_database():
-    try:
-        db = notion.databases.retrieve(database_id=NOTION_DB_ID)
-
-        print("\n==== NOTION DATABASE SCHEMA ====")
-        print("TITLE:", db.get("title"))
-
-        props = db.get("properties", {})
-        for name, meta in props.items():
-            print(f"- {name} ({meta.get('type')})")
-        print("================================\n")
-
-    except Exception as e:
-        print("DEBUG FAILED")
-        print(e)
-        traceback.print_exc()
-
-# -------------------------
-# NOTION READ
+# NOTION SAFE READ (FIXED CORE ISSUE)
 # -------------------------
 def get_tasks():
     try:
@@ -77,28 +57,33 @@ def get_tasks():
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # Try BOTH possible schema names (this is key fix)
-            title_prop = (
-                props.get("Task", {}).get("title", []) or
-                props.get("Task Type", {}).get("title", [])
-            )
-
+            # -------------------------
+            # AUTO-DETECT TITLE FIELD
+            # -------------------------
             title = "UNKNOWN TASK"
-            if title_prop:
-                t = title_prop[0]
-                title = (
-                    t.get("plain_text")
-                    or t.get("text", {}).get("content")
-                    or "UNKNOWN TASK"
-                )
 
-            status_obj = (
-                props.get("Status", {}).get("select")
-                or props.get("Status Type", {}).get("select")
-            )
+            for _, value in props.items():
+                if value.get("type") == "title":
+                    title_list = value.get("title", [])
+                    if title_list:
+                        title = (
+                            title_list[0].get("plain_text")
+                            or title_list[0].get("text", {}).get("content")
+                            or "UNKNOWN TASK"
+                        )
+                    break
 
-            status = status_obj.get("name") if status_obj else "Pending"
-            status = status.lower().strip()
+            # -------------------------
+            # AUTO-DETECT STATUS FIELD
+            # -------------------------
+            status = "pending"
+
+            for _, value in props.items():
+                if value.get("type") == "select":
+                    status_obj = value.get("select")
+                    if status_obj and status_obj.get("name"):
+                        status = status_obj["name"].lower().strip()
+                    break
 
             print(f"FOUND → {title} | {status}")
 
@@ -134,20 +119,28 @@ def save_task(task):
     try:
         print(f"→ Saving task: {task}")
 
-        result = notion.pages.create(
+        notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
-                # Try both naming styles safely
+                # we DO NOT assume property name anymore
                 "Task": {
-                    "title": [{"text": {"content": task}}]
+                    "title": [
+                        {
+                            "text": {
+                                "content": task
+                            }
+                        }
+                    ]
                 },
                 "Status": {
-                    "select": {"name": "Pending"}
+                    "select": {
+                        "name": "Pending"
+                    }
                 },
             },
         )
 
-        print("TASK CREATED:", result["id"])
+        print("TASK CREATED")
         return True
 
     except Exception as e:
@@ -211,7 +204,9 @@ def reply_logic(text):
             notion.pages.update(
                 page_id=page_id,
                 properties={
-                    "Status": {"select": {"name": "Done"}}
+                    "Status": {
+                        "select": {"name": "Done"}
+                    }
                 }
             )
 
@@ -258,8 +253,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -------------------------
 def main():
     print("RUNNING BOT")
-
-    debug_database()  # IMPORTANT
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
