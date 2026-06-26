@@ -172,52 +172,96 @@ def jesse(text, task_count):
     m = mood(task_count)
 
     prefix = {
-        "balanced": ["Yo. ", "Alright. "],
-        "experienced": ["Back again. ", "Same thing huh. "],
-        "disciplined": ["I respect it. ", "Locked in. "],
-        "chaotic": ["Bro… ", "This is wild. "],
+        "balanced": ["Yo. ", "Alright. ", "Aight. "],
+        "experienced": ["Back again. ", "Same thing huh. ", "We back. "],
+        "disciplined": ["I respect it. ", "Locked in. ", "No distractions. "],
+        "chaotic": ["Bro… ", "This is wild. ", "Yo what 😭 "],
     }.get(p, ["Yo. "])
 
     mood_prefix = {
-        "calm": ["Chill. ", "Alright. "],
-        "focused": ["Lock in. ", "Listen. "],
-        "busy": ["We moving. ", "Keep going. "],
-        "overloaded": ["Yo this is a lot. ", "We cooked. "],
+        "calm": ["Chill. ", "Alright. ", "We good. "],
+        "focused": ["Lock in. ", "Listen. ", "Focus up. "],
+        "busy": ["We moving. ", "Keep going. ", "Grinding. "],
+        "overloaded": ["Yo this is a lot. ", "We cooked. ", "Too much. "],
     }.get(m, ["Yo. "])
 
     suffix = {
-        "calm": [" we good.", ""],
-        "focused": [" stay sharp.", " you got this."],
-        "busy": [" keep going.", " we in it."],
-        "overloaded": [" we need cleanup.", " too much man."],
+        "calm": [" we good.", "", " all good."],
+        "focused": [" stay sharp.", " you got this.", " don’t slack."],
+        "busy": [" keep going.", " we in it.", " no stopping now."],
+        "overloaded": [" we need cleanup.", " too much man.", " reset needed."],
     }.get(m, [" yo."])
 
     return random.choice(prefix + mood_prefix) + text + random.choice(suffix)
 
 # -------------------------
-# REPLY (UPDATED: GREETING + REACTIONS ADDED)
+# REPLY (UPDATED ONLY HERE)
 # -------------------------
 def reply(text):
     task_count = len(pending_tasks())
     t = text.lower().strip()
 
     # -------------------------
-    # NEW: GREETINGS
+    # GREETINGS (EXPANDED)
     # -------------------------
     if any(x in t for x in ["yo jesse", "hey jesse", "jesse", "yo"]):
-        return jesse("yo. what’s up?", task_count)
+        return jesse(random.choice([
+            "yo. what's up?",
+            "yeah?",
+            "sup?",
+            "yo yo. what's happening?",
+            "what's cookin'?",
+            "you rang?",
+            "what's the move today?",
+            "we working or what?",
+            "talk to me.",
+            "what’s good?"
+        ]), task_count)
 
     # -------------------------
-    # NEW: REACTIONS
+    # GRATITUDE (EXPANDED)
     # -------------------------
     if any(x in t for x in ["thanks", "thank you", "thx"]):
-        return jesse("yeah. anytime.", task_count)
+        return jesse(random.choice([
+            "yeah. anytime.",
+            "got you.",
+            "no problem.",
+            "say less.",
+            "all good.",
+            "don’t mention it.",
+            "we move.",
+            "easy.",
+            "you know it."
+        ]), task_count)
 
+    # -------------------------
+    # POSITIVE FEEDBACK
+    # -------------------------
     if any(x in t for x in ["good job", "nice", "well done"]):
-        return jesse("appreciate it. we keep going.", task_count)
+        return jesse(random.choice([
+            "appreciate it.",
+            "we keep going.",
+            "that’s the energy.",
+            "respect.",
+            "let’s keep stacking wins.",
+            "we don’t stop here.",
+            "yeah we moving right.",
+            "solid."
+        ]), task_count)
 
+    # -------------------------
+    # LAUGH / REACTION
+    # -------------------------
     if "lol" in t:
-        return jesse("yeah that’s wild.", task_count)
+        return jesse(random.choice([
+            "yeah that’s wild.",
+            "I’m dead 😭",
+            "bro no way.",
+            "nah that’s funny.",
+            "you got me there.",
+            "fair enough.",
+            "okay okay."
+        ]), task_count)
 
     # -------------------------
     # EXISTING COMMANDS (UNCHANGED)
