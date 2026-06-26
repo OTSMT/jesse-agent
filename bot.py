@@ -21,7 +21,7 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# GIFS (KEEP YOUR WORKING IDS)
+# GIFS
 # -------------------------
 JESSE_GIFS = {
     "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
@@ -30,7 +30,7 @@ JESSE_GIFS = {
 }
 
 # -------------------------
-# MEMORY (SIMPLE + SAFE)
+# MEMORY (SINGLE USER)
 # -------------------------
 MEM_FILE = "jesse_memory.json"
 
@@ -44,7 +44,10 @@ def load_memory():
             "tasks_done": 0,
             "last_seen": time.time(),
             "streak": 0,
-            "last_day": None
+            "last_day": None,
+            "weekly_added": 0,
+            "weekly_done": 0,
+            "week_start": time.time()
         }
 
 MEMORY = load_memory()
@@ -52,6 +55,39 @@ MEMORY = load_memory()
 def save_memory():
     with open(MEM_FILE, "w") as f:
         json.dump(MEMORY, f)
+
+# -------------------------
+# STREAK + WEEK
+# -------------------------
+def update_streak():
+    today = datetime.date.today().isoformat()
+
+    if MEMORY["last_day"] != today:
+        yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+
+        if MEMORY["last_day"] == yesterday:
+            MEMORY["streak"] += 1
+        else:
+            MEMORY["streak"] = 1
+
+        MEMORY["last_day"] = today
+
+def update_week():
+    if time.time() - MEMORY["week_start"] > 7 * 24 * 3600:
+        MEMORY["weekly_added"] = 0
+        MEMORY["weekly_done"] = 0
+        MEMORY["week_start"] = time.time()
+
+def update_activity():
+    now = time.time()
+
+    if now - MEMORY["last_seen"] > 6 * 3600:
+        MEMORY["streak"] = max(0, MEMORY["streak"] - 1)
+
+    MEMORY["last_seen"] = now
+
+    update_streak()
+    update_week()
 
 # -------------------------
 # NOTION
@@ -108,18 +144,62 @@ def mark_done(name):
     return False
 
 # -------------------------
-# JESSE (SIMPLE STABLE VERSION)
+# PERSONALITY
 # -------------------------
+def get_personality():
+    ratio = MEMORY["tasks_done"] / max(1, MEMORY["tasks_added"])
+
+    if MEMORY["streak"] >= 5:
+        return "disciplined"
+
+    if ratio < 0.3:
+        return "chaotic"
+
+    if MEMORY["tasks_added"] > 10:
+        return "experienced"
+
+    return "balanced"
+
+def mood(task_count):
+    if task_count == 0:
+        return "calm"
+    if task_count <= 2:
+        return "focused"
+    if task_count <= 5:
+        return "busy"
+    return "overloaded"
+
 def jesse(text, task_count):
-    moods = ["Yo. ", "Alright. ", "Listen. ", "Yo yo. "]
-    suffix = ["", " stay sharp.", " you got this.", " let's go."]
-    return random.choice(moods) + text + random.choice(suffix)
+    p = get_personality()
+    m = mood(task_count)
+
+    prefix = {
+        "balanced": ["Yo. ", "Alright. "],
+        "experienced": ["Back again. ", "Same thing huh. "],
+        "disciplined": ["I respect it. ", "Locked in. "],
+        "chaotic": ["Bro… ", "This is wild. "],
+    }.get(p, ["Yo. "])
+
+    mood_prefix = {
+        "calm": ["Chill. ", "Alright. "],
+        "focused": ["Lock in. ", "Listen. "],
+        "busy": ["We moving. ", "Keep going. "],
+        "overloaded": ["Yo this is a lot. ", "We cooked. "],
+    }.get(m, ["Yo. "])
+
+    suffix = {
+        "calm": [" we good.", ""],
+        "focused": [" stay sharp.", " you got this."],
+        "busy": [" keep going.", " we in it."],
+        "overloaded": [" we need cleanup.", " too much man."],
+    }.get(m, [" yo."])
+
+    return random.choice(prefix + mood_prefix) + text + random.choice(suffix)
 
 # -------------------------
-# REPLY LOGIC (UNCHANGED CORE)
+# REPLY
 # -------------------------
 def reply(text):
-    text = text.lower().strip()
     task_count = len(pending_tasks())
 
     if text == "list":
@@ -136,27 +216,27 @@ def reply(text):
     if text.startswith("add"):
         save_task(text.replace("add", "", 1).strip())
         MEMORY["tasks_added"] += 1
+        MEMORY["weekly_added"] += 1
         return jesse("Task added.", task_count)
 
     if text.startswith("done"):
         ok = mark_done(text.replace("done", "", 1).strip())
         if ok:
             MEMORY["tasks_done"] += 1
+            MEMORY["weekly_done"] += 1
         return jesse("Done." if ok else "Not found.", task_count)
 
     return jesse("Noted.", task_count)
 
 # -------------------------
-# GIF SENDER (SAFE)
+# GIF
 # -------------------------
-async def send_gif(update: Update, key: str):
+async def send_gif(update: Update):
     try:
-        gif = JESSE_GIFS.get(key)
-        if gif:
-            await update.get_bot().send_animation(
-                chat_id=update.effective_chat.id,
-                animation=gif
-            )
+        await update.get_bot().send_animation(
+            chat_id=update.effective_chat.id,
+            animation=random.choice(list(JESSE_GIFS.values()))
+        )
     except:
         pass
 
@@ -165,16 +245,16 @@ async def send_gif(update: Update, key: str):
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        text = update.message.text
+        update_activity()
+
+        text = update.message.text.lower().strip()
 
         response = reply(text)
 
         save_memory()
 
         await update.message.reply_text(response)
-
-        # simple fallback gif (no logic complexity)
-        await send_gif(update, "focus")
+        await send_gif(update)
 
     except Exception as e:
         print("ERROR:", e)
