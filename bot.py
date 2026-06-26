@@ -21,13 +21,13 @@ if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# JESSE STYLE (UNCHANGED)
+# JESSE STYLE
 # -------------------------
 def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# GIFS (UNCHANGED IDS)
+# GIFS
 # -------------------------
 JESSE_GIFS = {
     "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
@@ -35,57 +35,44 @@ JESSE_GIFS = {
     "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
 }
 
+DEFAULT_GIF = JESSE_GIFS["add"]
+
 # -------------------------
-# 🔥 DEBUG GIF SYSTEM (FULL VISIBILITY)
+# SAFE GIF SENDER
 # -------------------------
 async def send_gif(update: Update, key: str):
     try:
-        print("\n===== GIF DEBUG START =====")
+        print("\n[GIFT SYSTEM]")
         print("KEY:", key)
 
-        if not update:
-            print("UPDATE IS NONE")
-            return
-
-        if not update.effective_chat:
-            print("NO EFFECTIVE CHAT")
+        if not update or not update.effective_chat:
+            print("NO CHAT CONTEXT")
             return
 
         bot = update.get_bot()
         chat_id = update.effective_chat.id
 
-        print("CHAT ID:", chat_id)
-
         gif = JESSE_GIFS.get(key)
-
-        print("GIF FILE_ID:", gif)
 
         if not gif:
             print("NO GIF FOUND FOR KEY")
             return
 
-        print("SENDING GIF NOW...")
+        print("SENDING GIF:", gif)
 
-        result = await bot.send_animation(
+        await bot.send_animation(
             chat_id=chat_id,
             animation=gif
         )
 
         print("GIF SENT SUCCESSFULLY")
-        print("RESPONSE TYPE:", type(result))
-        print("HAS ANIMATION:", hasattr(result, "animation"))
-
-        if result and result.animation:
-            print("ANIMATION FILE_ID RETURNED:", result.animation.file_id)
-
-        print("===== GIF DEBUG END =====\n")
 
     except Exception as e:
-        print("🔥 GIF FAILED HARD:", repr(e))
+        print("GIF ERROR:", repr(e))
         traceback.print_exc()
 
 # -------------------------
-# NOTION (UNCHANGED)
+# NOTION
 # -------------------------
 def get_tasks():
     try:
@@ -172,6 +159,9 @@ def mark_done(name):
         traceback.print_exc()
         return False
 
+# -------------------------
+# BOT LOGIC
+# -------------------------
 def reply(text):
     text = text.lower().strip()
 
@@ -185,30 +175,44 @@ def reply(text):
         task = top_task()
         return jesse(f"Do this → {task}") if task else jesse("No tasks.")
 
-    if text.startswith("add "):
-        save_task(text[4:])
+    if text.startswith("add"):
+        save_task(text.replace("add", "", 1).strip())
         return jesse("Task added.")
 
-    if text.startswith("done "):
-        ok = mark_done(text[5:])
+    if text.startswith("done"):
+        ok = mark_done(text.replace("done", "", 1).strip())
         return jesse("Done." if ok else "Not found.")
 
     return jesse("Noted.")
 
+# -------------------------
+# HANDLER (FIXED TRIGGERS)
+# -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        text = update.message.text.strip()
-        response = reply(text)
+        text = update.message.text
+
+        if not text:
+            return
+
+        normalized = text.strip().lower()
 
         print("\n=== MESSAGE RECEIVED ===")
-        print("TEXT:", text)
+        print("RAW:", text)
+        print("NORMALIZED:", normalized)
 
-        # GIF triggers (DEBUG MODE)
-        if text.startswith("add "):
+        response = reply(normalized)
+
+        # -------------------------
+        # FIXED GIF TRIGGERS
+        # -------------------------
+        if normalized.startswith("add"):
             await send_gif(update, "add")
-        elif text.startswith("done "):
+
+        elif normalized.startswith("done"):
             await send_gif(update, "done")
-        elif text == "focus":
+
+        elif normalized == "focus":
             await send_gif(update, "focus")
 
         await update.message.reply_text(response)
@@ -217,6 +221,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("HANDLER ERROR:", e)
         traceback.print_exc()
 
+# -------------------------
+# RUN
+# -------------------------
 def main():
     print("RUNNING BOT")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
