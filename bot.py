@@ -19,7 +19,7 @@ if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
     raise ValueError("Missing env vars")
 
 # -------------------------
-# NOTION
+# NOTION CLIENT
 # -------------------------
 notion = Client(auth=NOTION_API_KEY)
 
@@ -41,27 +41,35 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION FETCH
+# NOTION FETCH (FIXED)
 # -------------------------
 def get_tasks():
     try:
         print("→ Calling Notion...")
 
-        results = notion.databases.query(
-            database_id=NOTION_DB_ID,
-            page_size=100
-        )
+        # FIX: compatible query method across notion-client versions
+        try:
+            results = notion.databases.query(
+                database_id=NOTION_DB_ID,
+                page_size=100
+            )
+        except AttributeError:
+            # fallback for older SDK versions
+            results = notion.request(
+                "POST",
+                f"https://api.notion.com/v1/databases/{NOTION_DB_ID}/query",
+                json={"page_size": 100},
+            )
 
         tasks = []
 
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # ✅ FIXED PROPERTY NAME: Task
+            # IMPORTANT: your DB property names
             title_prop = props.get("Task", {}).get("title", [])
             title = title_prop[0].get("plain_text") if title_prop else "UNKNOWN TASK"
 
-            # ✅ FIXED PROPERTY NAME: Status
             status_obj = props.get("Status", {}).get("select")
             status = status_obj.get("name") if status_obj else ""
 
@@ -91,7 +99,7 @@ def top_task():
     return tasks[0]["title"] if tasks else None
 
 # -------------------------
-# SAVE TASK (FIXED)
+# SAVE TASK
 # -------------------------
 def save_task(task):
     try:
@@ -117,7 +125,7 @@ def save_task(task):
             },
         )
 
-        print("✅ TASK CREATED:", result["id"])
+        print("TASK CREATED:", result["id"])
         return True
 
     except Exception as e:
@@ -196,8 +204,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -------------------------
 def main():
     print("RUNNING BOT")
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
     app.run_polling()
 
 if __name__ == "__main__":
