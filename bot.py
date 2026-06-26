@@ -1,6 +1,9 @@
 import os
 import random
+import time
 import traceback
+import json
+import datetime
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
@@ -30,54 +33,193 @@ JESSE_GIFS = {
 }
 
 # -------------------------
-# JESSE MOOD ENGINE (NEW)
+# MEMORY SYSTEM (LONG TERM ARC)
 # -------------------------
-def get_mood(task_count: int):
+MEMORY_FILE = "jesse_memory.json"
+
+def load_memory():
+    try:
+        with open(MEMORY_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {
+            "tasks_added": 0,
+            "tasks_done": 0,
+            "last_seen": time.time(),
+            "sessions": 0,
+            "last_active_day": None,
+            "streak": 0,
+            "weekly_added": 0,
+            "weekly_done": 0,
+            "week_start": time.time()
+        }
+
+def save_memory():
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(MEMORY, f)
+
+MEMORY = load_memory()
+
+# -------------------------
+# STREAK + WEEK SYSTEM
+# -------------------------
+def update_streak():
+    today = datetime.date.today().isoformat()
+
+    if MEMORY["last_active_day"] != today:
+        if MEMORY["last_active_day"] is None:
+            MEMORY["streak"] = 1
+        else:
+            yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+
+            if MEMORY["last_active_day"] == yesterday:
+                MEMORY["streak"] += 1
+            else:
+                MEMORY["streak"] = 1
+
+        MEMORY["last_active_day"] = today
+        save_memory()
+
+def update_weekly():
+    now = time.time()
+    if now - MEMORY["week_start"] > 7 * 24 * 3600:
+        MEMORY["weekly_added"] = 0
+        MEMORY["weekly_done"] = 0
+        MEMORY["week_start"] = now
+        save_memory()
+
+def update_session():
+    now = time.time()
+
+    if now - MEMORY["last_seen"] > 6 * 3600:
+        MEMORY["sessions"] += 1
+
+    MEMORY["last_seen"] = now
+
+    update_streak()
+    save_memory()
+
+# -------------------------
+# STATE (SHORT TERM)
+# -------------------------
+STATE = {
+    "energy": 60,
+    "stress": 10,
+}
+
+def decay_state():
+    STATE["energy"] = max(0, STATE["energy"] - 0.5)
+    STATE["stress"] = max(0, STATE["stress"] - 0.3)
+
+def update_state(action, task_count):
+    if action == "add":
+        STATE["energy"] += 3
+        STATE["stress"] += 2
+        MEMORY["tasks_added"] += 1
+        MEMORY["weekly_added"] += 1
+
+    elif action == "done":
+        STATE["energy"] += 2
+        STATE["stress"] -= 3
+        MEMORY["tasks_done"] += 1
+        MEMORY["weekly_done"] += 1
+
+    if task_count > 5:
+        STATE["stress"] += 2
+
+    STATE["energy"] = max(0, min(100, STATE["energy"]))
+    STATE["stress"] = max(0, min(100, STATE["stress"]))
+
+    save_memory()
+
+# -------------------------
+# PERSONALITY ENGINE
+# -------------------------
+def get_personality():
+    ratio = MEMORY["tasks_done"] / max(1, MEMORY["tasks_added"])
+
+    if MEMORY["streak"] >= 5:
+        return "disciplined_streak"
+
+    if MEMORY["sessions"] >= 5 and ratio > 0.7:
+        return "disciplined"
+
+    if ratio < 0.3:
+        return "chaotic"
+
+    if MEMORY["sessions"] >= 3:
+        return "experienced"
+
+    if MEMORY["streak"] == 0:
+        return "inactive"
+
+    return "balanced"
+
+# -------------------------
+# MOOD ENGINE
+# -------------------------
+def get_mood(task_count):
+    decay_state()
+
     if task_count == 0:
         return "calm"
-    elif task_count <= 2:
-        return "focused"
-    elif task_count <= 5:
-        return "busy"
-    else:
+
+    if STATE["stress"] > 70:
         return "overloaded"
 
-def mood_prefix(mood):
-    if mood == "calm":
-        return ["Yo. ", "Alright. ", "Nice and chill. "]
+    if STATE["energy"] > 75:
+        return "hyped"
 
-    if mood == "focused":
-        return ["Yo. ", "Lock in. ", "Alright listen. "]
+    if task_count <= 2:
+        return "focused"
 
-    if mood == "busy":
-        return ["Yo. ", "We got work. ", "Alright this is stacking. "]
+    if task_count <= 5:
+        return "busy"
 
-    if mood == "overloaded":
-        return ["Yo!! ", "Bro this is a lot. ", "We drowning here. "]
+    return "neutral"
 
-    return ["Yo. "]
+def mood_prefix(mood, personality):
+    base = {
+        "calm": ["Yo. ", "Alright. "],
+        "focused": ["Yo. ", "Lock in. "],
+        "busy": ["Yo. ", "We moving. "],
+        "overloaded": ["Yo!! ", "Bro… "],
+        "hyped": ["YO! ", "LET’S GOOO! "],
+        "neutral": ["Yo. ", "Alright. "],
+    }.get(mood, ["Yo. "])
 
-def mood_suffix(mood):
-    if mood == "calm":
-        return [" yo.", "", " we good."]
-    if mood == "focused":
-        return [" yo.", " stay sharp.", " you got this."]
-    if mood == "busy":
-        return [" yo.", " keep going.", " we moving."]
-    if mood == "overloaded":
-        return [" yo!", " too much man.", " we need cleanup."]
-    return [" yo."]
+    personality_add = {
+        "disciplined": ["I respect the grind. ", "You’re locked in. "],
+        "disciplined_streak": ["you’re on fire. ", "this streak is insane. "],
+        "chaotic": ["Bro we struggling 😭 ", "This is wild… "],
+        "experienced": ["Back again. ", "Same routine huh. "],
+        "inactive": ["yo where you been. ", "we fell off huh. "],
+        "balanced": ["Alright. ", ""],
+    }.get(personality, [""])
+
+    return base + personality_add
+
+def mood_suffix(mood, personality):
+    return {
+        "calm": [" yo.", "", " we chill."],
+        "focused": [" stay sharp.", " you got this."],
+        "busy": [" keep going.", " we in it."],
+        "overloaded": [" this is too much.", " we need cleanup."],
+        "hyped": [" LET’S GOO.", " this is fire."],
+        "neutral": [" yo.", ""],
+    }.get(mood, [" yo."])
 
 # -------------------------
-# CORE JESSE FUNCTION (UPDATED ONLY FEELING)
+# JESSE CORE
 # -------------------------
 def jesse(text, task_count=0):
     mood = get_mood(task_count)
+    personality = get_personality()
 
     return (
-        random.choice(mood_prefix(mood))
+        random.choice(mood_prefix(mood, personality))
         + text
-        + random.choice(mood_suffix(mood))
+        + random.choice(mood_suffix(mood, personality))
     )
 
 # -------------------------
@@ -86,16 +228,8 @@ def jesse(text, task_count=0):
 def get_tasks():
     try:
         res = notion.databases.query(database_id=NOTION_DB_ID)
-        results = res.get("results", [])
-
-        print("\n==== NOTION DEBUG ====")
-        print("TASK COUNT:", len(results))
-
-        return results
-
-    except Exception as e:
-        print("QUERY ERROR:", e)
-        traceback.print_exc()
+        return res.get("results", [])
+    except:
         return []
 
 def extract_title(page):
@@ -122,131 +256,106 @@ def extract_status(page):
         return "pending"
 
 def pending_tasks():
-    tasks = get_tasks()
-    return [t for t in tasks if extract_status(t) != "done"]
+    return [t for t in get_tasks() if extract_status(t) != "done"]
 
 def top_task():
     tasks = pending_tasks()
     return extract_title(tasks[0]) if tasks else None
 
 def save_task(text):
-    try:
-        notion.pages.create(
-            parent={"database_id": NOTION_DB_ID},
-            properties={
-                "Task": {"title": [{"text": {"content": text}}]},
-                "Status": {"select": {"name": "Pending"}},
-            },
-        )
-        print("ADDED:", text)
-    except Exception as e:
-        print("ADD ERROR:", e)
-        traceback.print_exc()
+    notion.pages.create(
+        parent={"database_id": NOTION_DB_ID},
+        properties={
+            "Task": {"title": [{"text": {"content": text}}]},
+            "Status": {"select": {"name": "Pending"}},
+        },
+    )
 
 def mark_done(name):
-    try:
-        tasks = get_tasks()
+    tasks = get_tasks()
 
-        for t in tasks:
-            title = extract_title(t)
+    for t in tasks:
+        title = extract_title(t)
 
-            if title.strip().lower() == name.strip().lower():
-                notion.pages.update(
-                    page_id=t["id"],
-                    properties={
-                        "Status": {"select": {"name": "Done"}}
-                    },
-                )
-                print("DONE:", title)
-                return True
+        if title.strip().lower() == name.strip().lower():
+            notion.pages.update(
+                page_id=t["id"],
+                properties={"Status": {"select": {"name": "Done"}}},
+            )
+            return True
 
-        print("NOT FOUND:", name)
-        return False
-
-    except Exception as e:
-        print("DONE ERROR:", e)
-        traceback.print_exc()
-        return False
+    return False
 
 # -------------------------
-# BOT LOGIC (UNCHANGED)
+# REPLY
 # -------------------------
 def reply(text):
     text = text.lower().strip()
+    task_count = len(pending_tasks())
 
     if text == "list":
-        tasks = pending_tasks()
-        if not tasks:
-            return jesse("No pending jobs.", len(tasks))
         return jesse(
-            "Tasks:\n- " + "\n- ".join(extract_title(t) for t in tasks),
-            len(tasks)
+            "Tasks:\n- " + "\n- ".join(extract_title(t) for t in pending_tasks())
+            if task_count else "No pending jobs.",
+            task_count
         )
 
     if text == "focus":
         task = top_task()
-        return jesse(f"Do this → {task}", len(pending_tasks())) if task else jesse("No tasks.", 0)
+        return jesse(f"Do this → {task}" if task else "No tasks.", task_count)
 
     if text.startswith("add"):
         save_task(text.replace("add", "", 1).strip())
-        return jesse("Task added.", len(pending_tasks()) + 1)
+        update_state("add", task_count + 1)
+        return jesse("Task added.", task_count + 1)
 
     if text.startswith("done"):
         ok = mark_done(text.replace("done", "", 1).strip())
-        return jesse("Done." if ok else "Not found.", len(pending_tasks()))
+        update_state("done", task_count)
+        return jesse("Done." if ok else "Not found.", task_count)
 
-    return jesse("Noted.", len(pending_tasks()))
+    return jesse("Noted.", task_count)
 
 # -------------------------
-# GIF SYSTEM (UNCHANGED)
+# GIF
 # -------------------------
 async def send_gif(update: Update, key: str):
     try:
-        if not update or not update.effective_chat:
-            return
-
         bot = update.get_bot()
-        chat_id = update.effective_chat.id
-
         gif = JESSE_GIFS.get(key)
 
         if gif:
-            await bot.send_animation(chat_id=chat_id, animation=gif)
-
-    except Exception as e:
-        print("GIF ERROR:", repr(e))
-        traceback.print_exc()
+            await bot.send_animation(
+                chat_id=update.effective_chat.id,
+                animation=gif
+            )
+    except:
+        pass
 
 # -------------------------
-# HANDLER (UNCHANGED)
+# HANDLER
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        text = update.message.text
+        update_session()
+        update_weekly()
 
+        text = update.message.text
         if not text:
             return
 
-        normalized = text.strip().lower()
-
-        print("\n=== MESSAGE RECEIVED ===")
-        print("RAW:", text)
-        print("NORMALIZED:", normalized)
-
-        response = reply(normalized)
+        response = reply(text)
 
         await update.message.reply_text(response)
         await send_gif(update, "focus")
 
     except Exception as e:
-        print("HANDLER ERROR:", e)
-        traceback.print_exc()
+        print("ERROR:", e)
 
 # -------------------------
 # RUN
 # -------------------------
 def main():
-    print("RUNNING BOT")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     app.run_polling()
