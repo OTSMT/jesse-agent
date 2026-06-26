@@ -21,13 +21,13 @@ if not TELEGRAM_TOKEN or not NOTION_API_KEY or not NOTION_DB_ID:
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# JESSE PERSONALITY (UNCHANGED)
+# JESSE STYLE (UNCHANGED)
 # -------------------------
 def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# GIFS (UNCHANGED)
+# GIFS (SAFE)
 # -------------------------
 JESSE_GIFS = {
     "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
@@ -37,16 +37,16 @@ JESSE_GIFS = {
 
 DEFAULT_GIF = "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
 
-
 async def send_gif(update: Update, key: str):
     try:
-        gif = JESSE_GIFS.get(key, DEFAULT_GIF)
-        await update.message.reply_animation(animation=gif)
+        gif = JESSE_GIFS.get(key)
+        if gif:
+            await update.message.reply_animation(animation=gif)
     except Exception as e:
         print("GIF ERROR:", e)
 
 # -------------------------
-# NOTION CORE (FIXED QUERY + DEBUG)
+# NOTION FETCH (DEBUG ENABLED)
 # -------------------------
 def get_tasks():
     try:
@@ -54,19 +54,19 @@ def get_tasks():
 
         results = res.get("results", [])
 
-        print("==== NOTION DEBUG ====")
+        print("\n==== NOTION DEBUG ====")
         print("DB ID:", NOTION_DB_ID)
         print("TASK COUNT:", len(results))
 
         return results
 
     except Exception as e:
-        print("NOTION QUERY ERROR:", e)
+        print("QUERY ERROR:", e)
         traceback.print_exc()
         return []
 
 # -------------------------
-# PROPERTY PARSING (ROBUST)
+# SAFE PROPERTY PARSING
 # -------------------------
 def extract_title(page):
     try:
@@ -79,32 +79,42 @@ def extract_title(page):
         pass
     return "UNKNOWN"
 
-
 def extract_status(page):
     try:
         props = page.get("properties", {})
         for v in props.values():
+
             if v.get("type") == "select":
                 sel = v.get("select")
-                if sel:
-                    return sel.get("name", "").lower()
+                if sel and sel.get("name"):
+                    return sel["name"].strip().lower()
+
+        # IMPORTANT FIX: treat missing status as pending
+        return "pending"
+
     except:
-        pass
-    return ""
+        return "pending"
 
 # -------------------------
-# FILTERS
+# FILTER LOGIC (FIXED)
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
-    return [t for t in tasks if extract_status(t) != "done"]
+
+    result = []
+    for t in tasks:
+        status = extract_status(t)
+        if status != "done":
+            result.append(t)
+
+    return result
 
 def top_task():
     tasks = pending_tasks()
     return extract_title(tasks[0]) if tasks else None
 
 # -------------------------
-# ADD TASK (UNCHANGED LOGIC)
+# ADD TASK
 # -------------------------
 def save_task(text):
     try:
@@ -121,7 +131,7 @@ def save_task(text):
         traceback.print_exc()
 
 # -------------------------
-# MARK DONE (FIXED MATCHING)
+# DONE TASK
 # -------------------------
 def mark_done(name):
     try:
@@ -149,7 +159,7 @@ def mark_done(name):
         return False
 
 # -------------------------
-# BOT LOGIC (UNCHANGED BEHAVIOR)
+# BOT LOGIC
 # -------------------------
 def reply(text):
     text = text.lower().strip()
@@ -175,7 +185,7 @@ def reply(text):
     return jesse("Noted.")
 
 # -------------------------
-# HANDLER (GIF SAFE)
+# HANDLER (SAFE GIF FLOW)
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -183,7 +193,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         response = reply(text)
 
-        # GIF triggers (safe, non-blocking)
+        # GIF triggers
         try:
             if text.startswith("add "):
                 await send_gif(update, "add")
@@ -192,7 +202,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif text == "focus":
                 await send_gif(update, "focus")
         except Exception as e:
-            print("GIF FLOW ERROR:", e)
+            print("GIF ERROR:", e)
 
         await update.message.reply_text(response)
 
