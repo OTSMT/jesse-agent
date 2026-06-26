@@ -27,7 +27,7 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# GIFS (SAFE)
+# GIFS (FIXED + STABLE)
 # -------------------------
 JESSE_GIFS = {
     "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
@@ -35,18 +35,25 @@ JESSE_GIFS = {
     "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
 }
 
-DEFAULT_GIF = "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
+DEFAULT_GIF = JESSE_GIFS["add"]
 
 async def send_gif(update: Update, key: str):
     try:
-        gif = JESSE_GIFS.get(key)
-        if gif:
-            await update.message.reply_animation(animation=gif)
+        if not update or not update.message:
+            print("GIF SKIP: no message context")
+            return
+
+        gif = JESSE_GIFS.get(key, DEFAULT_GIF)
+
+        print(f"GIF SEND → {key}: {gif}")
+
+        await update.message.reply_animation(animation=gif)
+
     except Exception as e:
         print("GIF ERROR:", e)
 
 # -------------------------
-# NOTION FETCH (DEBUG ENABLED)
+# NOTION FETCH (UNCHANGED WORKING VERSION)
 # -------------------------
 def get_tasks():
     try:
@@ -66,7 +73,7 @@ def get_tasks():
         return []
 
 # -------------------------
-# SAFE PROPERTY PARSING
+# SAFE PROPERTY PARSING (UNCHANGED LOGIC)
 # -------------------------
 def extract_title(page):
     try:
@@ -83,28 +90,23 @@ def extract_status(page):
     try:
         props = page.get("properties", {})
         for v in props.values():
-
             if v.get("type") == "select":
                 sel = v.get("select")
                 if sel and sel.get("name"):
                     return sel["name"].strip().lower()
-
-        # IMPORTANT FIX: treat missing status as pending
         return "pending"
-
     except:
         return "pending"
 
 # -------------------------
-# FILTER LOGIC (FIXED)
+# TASK FILTERS (WORKING)
 # -------------------------
 def pending_tasks():
     tasks = get_tasks()
 
     result = []
     for t in tasks:
-        status = extract_status(t)
-        if status != "done":
+        if extract_status(t) != "done":
             result.append(t)
 
     return result
@@ -114,7 +116,7 @@ def top_task():
     return extract_title(tasks[0]) if tasks else None
 
 # -------------------------
-# ADD TASK
+# ADD TASK (UNCHANGED)
 # -------------------------
 def save_task(text):
     try:
@@ -131,7 +133,7 @@ def save_task(text):
         traceback.print_exc()
 
 # -------------------------
-# DONE TASK
+# DONE TASK (UNCHANGED)
 # -------------------------
 def mark_done(name):
     try:
@@ -159,7 +161,7 @@ def mark_done(name):
         return False
 
 # -------------------------
-# BOT LOGIC
+# BOT LOGIC (UNCHANGED)
 # -------------------------
 def reply(text):
     text = text.lower().strip()
@@ -185,7 +187,7 @@ def reply(text):
     return jesse("Noted.")
 
 # -------------------------
-# HANDLER (SAFE GIF FLOW)
+# HANDLER (ONLY GIF FIXED)
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -193,7 +195,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         response = reply(text)
 
-        # GIF triggers
         try:
             if text.startswith("add "):
                 await send_gif(update, "add")
@@ -202,7 +203,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif text == "focus":
                 await send_gif(update, "focus")
         except Exception as e:
-            print("GIF ERROR:", e)
+            print("GIF FLOW ERROR:", e)
 
         await update.message.reply_text(response)
 
