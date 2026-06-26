@@ -35,37 +35,31 @@ JESSE_GIFS = {
     "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
 }
 
-DEFAULT_GIF = JESSE_GIFS["add"]
+GIF_CYCLE = ["add", "done", "focus"]
+
+def pick_gif():
+    return random.choice(GIF_CYCLE)
 
 # -------------------------
-# SAFE GIF SENDER
+# GIF SENDER
 # -------------------------
-async def send_gif(update: Update, key: str):
+async def send_gif(update: Update):
     try:
-        print("\n[GIFT SYSTEM]")
-        print("KEY:", key)
-
         if not update or not update.effective_chat:
-            print("NO CHAT CONTEXT")
             return
 
         bot = update.get_bot()
         chat_id = update.effective_chat.id
 
-        gif = JESSE_GIFS.get(key)
+        gif_key = pick_gif()
+        gif = JESSE_GIFS.get(gif_key)
 
-        if not gif:
-            print("NO GIF FOUND FOR KEY")
-            return
-
-        print("SENDING GIF:", gif)
+        print(f"[GIF] Sending: {gif_key}")
 
         await bot.send_animation(
             chat_id=chat_id,
             animation=gif
         )
-
-        print("GIF SENT SUCCESSFULLY")
 
     except Exception as e:
         print("GIF ERROR:", repr(e))
@@ -186,7 +180,7 @@ def reply(text):
     return jesse("Noted.")
 
 # -------------------------
-# HANDLER (FIXED TRIGGERS)
+# HANDLER (GIF ALWAYS AFTER REPLY)
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -203,19 +197,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         response = reply(normalized)
 
-        # -------------------------
-        # FIXED GIF TRIGGERS
-        # -------------------------
-        if normalized.startswith("add"):
-            await send_gif(update, "add")
-
-        elif normalized.startswith("done"):
-            await send_gif(update, "done")
-
-        elif normalized == "focus":
-            await send_gif(update, "focus")
-
+        # ALWAYS SEND GIF AFTER ANY RESPONSE
         await update.message.reply_text(response)
+        await send_gif(update)
 
     except Exception as e:
         print("HANDLER ERROR:", e)
