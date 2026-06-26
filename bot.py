@@ -41,7 +41,7 @@ def jesse(text):
     return random.choice(["Yo. ", "Alright. ", "Listen. ", "Bruh, "]) + text + " yo."
 
 # -------------------------
-# NOTION FETCH (DEBUG SAFE)
+# NOTION FETCH
 # -------------------------
 def get_tasks():
     try:
@@ -52,18 +52,17 @@ def get_tasks():
             page_size=100
         )
 
-        print("→ Notion response received")
-
         tasks = []
 
         for r in results.get("results", []):
             props = r.get("properties", {})
 
-            # ⚠️ YOUR DB FIELDS
-            title_prop = props.get("Task Type", {}).get("title", [])
+            # ✅ FIXED PROPERTY NAME: Task
+            title_prop = props.get("Task", {}).get("title", [])
             title = title_prop[0].get("plain_text") if title_prop else "UNKNOWN TASK"
 
-            status_obj = props.get("Status Type", {}).get("select")
+            # ✅ FIXED PROPERTY NAME: Status
+            status_obj = props.get("Status", {}).get("select")
             status = status_obj.get("name") if status_obj else ""
 
             tasks.append({
@@ -75,8 +74,8 @@ def get_tasks():
         return tasks
 
     except Exception as e:
-        print("NOTION ERROR OCCURRED")
-        print(repr(e))
+        print("NOTION FETCH ERROR")
+        print(e)
         traceback.print_exc()
         return []
 
@@ -92,20 +91,40 @@ def top_task():
     return tasks[0]["title"] if tasks else None
 
 # -------------------------
-# SAVE TASK
+# SAVE TASK (FIXED)
 # -------------------------
 def save_task(task):
     try:
-        notion.pages.create(
+        print(f"→ Saving task: {task}")
+
+        result = notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties={
-                "Task Type": {"title": [{"text": {"content": task}}]},
-                "Status Type": {"select": {"name": "Pending"}},
+                "Task": {
+                    "title": [
+                        {
+                            "text": {
+                                "content": task
+                            }
+                        }
+                    ]
+                },
+                "Status": {
+                    "select": {
+                        "name": "Pending"
+                    }
+                },
             },
         )
-    except Exception:
-        print("CREATE ERROR")
+
+        print("✅ TASK CREATED:", result["id"])
+        return True
+
+    except Exception as e:
+        print("CREATE FAILED")
+        print(e)
         traceback.print_exc()
+        return False
 
 # -------------------------
 # GIF SENDER
@@ -141,8 +160,8 @@ def reply_logic(text):
         return jesse(f"Do this → {task}") if task else jesse("No tasks.")
 
     if text.startswith("add "):
-        save_task(text[4:].strip())
-        return jesse("Task added.")
+        ok = save_task(text[4:].strip())
+        return jesse("Task added.") if ok else jesse("Couldn't save task.")
 
     return jesse("Noted.")
 
