@@ -20,7 +20,7 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# GIFS (by intent)
+# GIFS (by event)
 # -------------------------
 GIFS = {
     "add": [
@@ -34,11 +34,11 @@ GIFS = {
     ],
     "list": [],
     "empty": [],
-    "overloaded": []
+    "default": []
 }
 
 # -------------------------
-# NOTION TASK HELPERS
+# NOTION TASKS
 # -------------------------
 def get_tasks():
     try:
@@ -93,7 +93,7 @@ def mark_done(name):
     return False
 
 # -------------------------
-# JESSE MEMORY (NOTION-BASED)
+# JESSE MEMORY (NOTION)
 # -------------------------
 MEMORY_PAGE_NAME = "JESSE_MEMORY"
 
@@ -101,8 +101,7 @@ def get_memory_page():
     try:
         pages = notion.databases.query(database_id=NOTION_DB_ID).get("results", [])
         for p in pages:
-            title = extract_title(p)
-            if title.strip().upper() == MEMORY_PAGE_NAME:
+            if extract_title(p).strip().upper() == MEMORY_PAGE_NAME:
                 return p
     except Exception as e:
         print("Memory fetch error:", e)
@@ -125,10 +124,9 @@ def load_memory():
 
     try:
         props = page.get("properties", {})
-        data_prop = props.get("Data", {})
-        rich = data_prop.get("rich_text", [])
-        if rich:
-            return {**default, **eval(rich[0]["plain_text"])}
+        data = props.get("Data", {}).get("rich_text", [])
+        if data:
+            return {**default, **eval(data[0]["plain_text"])}
     except:
         pass
 
@@ -156,7 +154,7 @@ def save_memory(mem):
 MEMORY = load_memory()
 
 # -------------------------
-# STREAKS
+# STREAK
 # -------------------------
 def update_streak():
     today = datetime.date.today().isoformat()
@@ -172,7 +170,7 @@ def update_streak():
         MEMORY["last_day"] = today
 
 # -------------------------
-# PERSONALITY ENGINE
+# JESSE ENGINE
 # -------------------------
 def mood(task_count):
     if task_count == 0:
@@ -233,11 +231,10 @@ def jesse(event, task_count):
     base = random.choice(moods[m])
     text = random.choice(lines.get(event, ["Yo."]))
 
-    suffix_pool = ["", " yo.", " bitch.", " let's go.", " keep moving."]
+    suffixes = ["", " yo.", " bitch.", " let's go.", " keep moving."]
+    response = base + text + random.choice(suffixes)
 
-    response = base + text + random.choice(suffix_pool)
-
-    # rare Easter egg
+    # rare Jesse moment
     if random.random() < 0.03:
         response += "\n\nYeah. Science."
 
@@ -254,44 +251,61 @@ def reply(text):
     if text == "list":
         tasks = pending_tasks()
         if not tasks:
-            return jesse("empty", task_count)
+            return jesse("empty", task_count), "empty"
 
         body = "\n- ".join(extract_title(t) for t in tasks)
-        return jesse("list", task_count) + "\n- " + body
+        return jesse("list", task_count) + "\n- " + body, "list"
 
     if text == "focus":
-        t = pending_tasks()
-        if not t:
-            return jesse("empty", task_count)
-        return jesse("focus", task_count) + extract_title(t[0])
+        tasks = pending_tasks()
+        if not tasks:
+            return jesse("empty", task_count), "empty"
+        return jesse("focus", task_count) + extract_title(tasks[0]), "focus"
 
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
         save_task(task)
         MEMORY["tasks_added"] += 1
-        return jesse("task_added", task_count)
+        return jesse("task_added", task_count), "add"
 
     if text.startswith("done"):
         task = text.replace("done", "", 1).strip()
         ok = mark_done(task)
         if ok:
             MEMORY["tasks_done"] += 1
-        return jesse("task_done" if ok else "not_found", task_count)
+        return jesse("task_done" if ok else "not_found", task_count), "done"
 
-    return jesse("task_added", task_count)
+    return jesse("task_added", task_count), "default"
 
 # -------------------------
-# TELEGRAM
+# GIF SENDER (FIXED)
+# -------------------------
+async def send_gif(update: Update, event: str):
+    try:
+        gifs = GIFS.get(event, GIFS["default"])
+        if not gifs:
+            return
+
+        await update.get_bot().send_animation(
+            chat_id=update.effective_chat.id,
+            animation=random.choice(gifs)
+        )
+    except Exception as e:
+        print("GIF error:", e)
+
+# -------------------------
+# TELEGRAM HANDLER
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = update.message.text.lower().strip()
 
-        response = reply(text)
+        response, event = reply(text)
 
         save_memory(MEMORY)
 
         await update.message.reply_text(response)
+        await send_gif(update, event)
 
     except Exception as e:
         print("ERROR:", e)
