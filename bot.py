@@ -21,25 +21,60 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# GIFS
+# GIF ENGINE (V2 - EMOTION POOLS)
+# Replace placeholders with real Telegram file_ids
 # -------------------------
-JESSE_GIFS = {
-    "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
-    "done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
-    "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
+JESSE_GIF_POOLS = {
+    "add": {
+        "chaos": ["gif_add_1", "gif_add_2"],
+        "hustler": ["gif_add_3"],
+        "disciplined": ["gif_add_4"],
+        "machine": ["gif_add_5"],
+    },
+
+    "done": {
+        "strict": ["gif_done_1"],
+        "disappointed": ["gif_done_2"],
+        "neutral": ["gif_done_3"],
+        "supportive": ["gif_done_4"],
+        "proud": ["gif_done_5"],
+    },
+
+    "focus": {
+        "chaos": ["gif_focus_1"],
+        "hustler": ["gif_focus_2"],
+        "disciplined": ["gif_focus_3"],
+        "machine": ["gif_focus_4"],
+    }
 }
 
-def get_gif(action):
-    return JESSE_GIFS.get(action)
+def pick_gif(action, relationship, arc):
+    pools = JESSE_GIF_POOLS.get(action)
+    if not pools:
+        return None
 
-async def send_gif(update: Update, action=None):
+    category = relationship if action == "done" else arc
+
+    gifs = pools.get(category)
+
+    if not gifs:
+        gifs = pools.get("neutral") or []
+    if not gifs:
+        gifs = [g for v in pools.values() for g in v]
+
+    return random.choice(gifs) if gifs else None
+
+
+async def send_gif(update: Update, action=None, relationship=None, arc=None):
     try:
-        gif = get_gif(action) if action else random.choice(list(JESSE_GIFS.values()))
-        if gif:
-            await update.get_bot().send_animation(
-                chat_id=update.effective_chat.id,
-                animation=gif
-            )
+        gif = pick_gif(action, relationship, arc)
+        if not gif:
+            return
+
+        await update.get_bot().send_animation(
+            chat_id=update.effective_chat.id,
+            animation=gif
+        )
     except:
         pass
 
@@ -65,7 +100,6 @@ def load_memory():
             "trust": 5,
             "failures": 0,
             "ignore_map": {},
-            "relationship": "neutral",
             "recent_performance": [],
         }
 
@@ -252,7 +286,7 @@ def reply(text):
         MEMORY["tasks_added"] += 1
         MEMORY["weekly_added"] += 1
         update_recent(False)
-        return jesse("Task added.", task_count), "add"
+        return jesse("Task added.", task_count), "add", True
 
     if "done" in t:
         task = t.replace("done", "", 1).strip()
@@ -263,21 +297,21 @@ def reply(text):
             MEMORY["weekly_done"] += 1
 
         update_recent(ok)
-        return jesse("Done." if ok else "Not found.", task_count), "done" if ok else None
+        return jesse("Done." if ok else "Not found.", task_count), "done" if ok else None, ok
 
     if t == "focus":
         tasks = pending_tasks()
         best = tasks[0] if tasks else None
-        return jesse("Do this → " + extract_title(best) if best else "No tasks.", task_count), "focus"
+        return jesse("Do this → " + extract_title(best) if best else "No tasks.", task_count), "focus", True
 
     if t == "list":
         return jesse(
             "Tasks:\n- " + "\n- ".join(extract_title(x) for x in pending_tasks())
             if task_count else "No tasks.",
             task_count
-        ), None
+        ), None, True
 
-    return jesse("Noted.", task_count), None
+    return jesse("Noted.", task_count), None, True
 
 # -------------------------
 # HANDLER
@@ -287,14 +321,19 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_activity()
 
         text = update.message.text
-        response, action = reply(text)
+        response, action, success = reply(text)
 
         save_memory()
 
         await update.message.reply_text(response)
 
         if action:
-            await send_gif(update, action)
+            await send_gif(
+                update,
+                action=action,
+                relationship=get_relationship(),
+                arc=arc()
+            )
 
     except Exception as e:
         print("ERROR:", e)
