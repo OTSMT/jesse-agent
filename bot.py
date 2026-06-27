@@ -3,6 +3,9 @@ import random
 import asyncio
 import datetime
 import traceback
+import json
+import shutil
+import time
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
@@ -10,18 +13,42 @@ from notion_client import Client
 
 print("JESSE BOT STARTED")
 
-# -------------------------
-# ENV
-# -------------------------
+# ==================================================
+# CONFIG
+# ==================================================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 
 notion = Client(auth=NOTION_API_KEY)
 
-# -------------------------
-# MEMORY
-# -------------------------
+DEBUG = True
+
+def debug(*args):
+    if DEBUG:
+        print("[DEBUG]", *args)
+
+# ==================================================
+# SAFETY BACKUP
+# ==================================================
+def auto_backup():
+    try:
+        if not os.path.exists("backups"):
+            os.makedirs("backups")
+
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        shutil.copy("bot.py", f"backups/bot_{timestamp}.py")
+
+        backups = sorted(os.listdir("backups"))
+        if len(backups) > 10:
+            os.remove(os.path.join("backups", backups[0]))
+
+    except Exception as e:
+        print("Backup failed:", e)
+
+# ==================================================
+# MEMORY (NOTION)
+# ==================================================
 MEMORY_PAGE_NAME = "JESSE_MEMORY"
 
 def get_memory_page():
@@ -56,7 +83,7 @@ def load_memory():
         props = page.get("properties", {})
         data = props.get("Data", {}).get("rich_text", [])
         if data:
-            return {**default, **eval(data[0]["plain_text"])}
+            return {**default, **json.loads(data[0]["plain_text"])}
     except:
         pass
 
@@ -73,7 +100,7 @@ def save_memory(mem):
             properties={
                 "Data": {
                     "rich_text": [
-                        {"text": {"content": str(mem)}}
+                        {"text": {"content": json.dumps(mem)}}
                     ]
                 }
             },
@@ -83,9 +110,9 @@ def save_memory(mem):
 
 MEMORY = load_memory()
 
-# -------------------------
-# TASKS
-# -------------------------
+# ==================================================
+# TASK SYSTEM (NOTION)
+# ==================================================
 def get_tasks():
     try:
         return notion.databases.query(database_id=NOTION_DB_ID).get("results", [])
@@ -137,9 +164,9 @@ def mark_done(name):
             return True
     return False
 
-# -------------------------
+# ==================================================
 # STREAK
-# -------------------------
+# ==================================================
 def update_streak():
     today = datetime.date.today().isoformat()
 
@@ -153,9 +180,9 @@ def update_streak():
 
         MEMORY["last_day"] = today
 
-# -------------------------
-# JESSE ENGINE
-# -------------------------
+# ==================================================
+# JESSE ENGINE (PERSONALITY)
+# ==================================================
 def mood(task_count):
     if task_count == 0:
         return "empty"
@@ -189,117 +216,92 @@ def jesse(event, task_count):
     base = random.choice(moods[m])
     text = random.choice(lines.get(event, ["Yo."]))
 
-    suffixes = ["", " yo.", " bitch.", " let's go.", " keep moving."]
+    suffixes = ["", " yo.", " let's go.", " keep moving."]
     return base + text + random.choice(suffixes)
 
-# -------------------------
-# JESSE TASK BRAIN v2
-# -------------------------
-def rank_tasks(tasks):
-    ranked = []
+# ==================================================
+# COMMAND SYSTEM
+# ==================================================
+COMMANDS = {}
 
-    for i, t in enumerate(tasks):
-        title = extract_title(t)
-        score = 0
+def command(name):
+    def wrapper(func):
+        COMMANDS[name] = func
+        return func
+    return wrapper
 
-        score += (i + 1)
+@command("list")
+def cmd_list(text):
+    tasks = pending_tasks()
+    if not tasks:
+        return jesse("empty", 0), "empty"
 
-        if len(title) < 20:
-            score += 2
+    body = "\n- ".join(extract_title(t) for t in tasks)
+    return jesse("list", len(tasks)) + "\n- " + body, "list"
 
-        if MEMORY.get("streak", 0) >= 5:
-            score += 1
+@command("add")
+def cmd_add(text):
+    task = text.replace("add", "", 1).strip()
+    save_task(task)
+    MEMORY["tasks_added"] += 1
+    return jesse("task_added", len(pending_tasks())), "add"
 
-        ranked.append((score, t))
+@command("done")
+def cmd_done(text):
+    task = text.replace("done", "", 1).strip()
+    ok = mark_done(task)
+    if ok:
+        MEMORY["tasks_done"] += 1
+        return jesse("task_done", len(pending_tasks())), "done"
+    return jesse("not_found", len(pending_tasks())), "default"
 
-    ranked.sort(reverse=True, key=lambda x: x[0])
-    return [t for _, t in ranked]
+@command("focus")
+def cmd_focus(text):
+    tasks = pending_tasks()
+    if not tasks:
+        return jesse("empty", 0), "empty"
 
-# -------------------------
-# GIF ENGINE (RESTORED)
-# -------------------------
-GIFS = {
-    "add": [
-        "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"
-    ],
-    "done": [
-        "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"
-    ],
-    "focus": [
-        "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"
-    ]
-}
+    top = tasks[0]
+    return jesse("focus", len(tasks)) + extract_title(top), "focus"
 
-def get_gif(event, task_count):
-    pool = GIFS.get(event, [])
-    return random.choice(pool) if pool else None
+def reply(text):
+    MEMORY["conversations"] += 1
 
-async def send_gif(update: Update, event: str, task_count: int):
-    try:
-        gif = get_gif(event, task_count)
-        if not gif:
-            return
+    for key, func in COMMANDS.items():
+        if text.startswith(key):
+            return func(text)
 
-        await update.get_bot().send_animation(
-            chat_id=update.effective_chat.id,
-            animation=gif
-        )
-    except:
-        pass
+    return cmd_list(text)
 
-# -------------------------
-# CHAT ID AUTO SAVE
-# -------------------------
+# ==================================================
+# TELEGRAM HANDLER
+# ==================================================
 def update_chat_id(update: Update):
     MEMORY["chat_id"] = update.effective_chat.id
 
-# -------------------------
-# CORE LOGIC
-# -------------------------
-def reply(text):
-    task_count = len(pending_tasks())
-    MEMORY["conversations"] += 1
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        update_chat_id(update)
+        update_streak()
 
-    tasks = pending_tasks()
+        text = update.message.text.lower().strip()
 
-    if text == "list":
-        if not tasks:
-            return jesse("empty", task_count), "empty"
+        debug("INPUT:", text)
 
-        body = "\n- ".join(extract_title(t) for t in tasks)
-        return jesse("list", task_count) + "\n- " + body, "list"
+        response, event = reply(text)
 
-    if text == "focus":
-        if not tasks:
-            return jesse("empty", task_count), "empty"
+        save_memory(MEMORY)
 
-        ranked = rank_tasks(tasks)
-        top = ranked[0]
+        await update.message.reply_text(response)
 
-        return jesse("focus", task_count) + extract_title(top), "focus"
+    except Exception as e:
+        debug("ERROR:", e)
+        traceback.print_exc()
 
-    if text.startswith("add"):
-        task = text.replace("add", "", 1).strip()
-        save_task(task)
-        MEMORY["tasks_added"] += 1
-        return jesse("task_added", task_count), "add"
-
-    if text.startswith("done"):
-        task = text.replace("done", "", 1).strip()
-        ok = mark_done(task)
-        if ok:
-            MEMORY["tasks_done"] += 1
-            return jesse("task_done", task_count), "done"
-        return jesse("not_found", task_count), "default"
-
-    return jesse("list", task_count), "default"
-
-# -------------------------
+# ==================================================
 # DAILY RECAP
-# -------------------------
+# ==================================================
 async def send_daily_recap(bot):
-    global MEMORY
-
     while True:
         try:
             today = datetime.date.today().isoformat()
@@ -319,36 +321,17 @@ async def send_daily_recap(bot):
                 MEMORY["last_recap_date"] = today
                 save_memory(MEMORY)
 
-        except:
-            pass
+        except Exception as e:
+            debug("RECAP ERROR:", e)
 
         await asyncio.sleep(3600)
 
-# -------------------------
-# HANDLER
-# -------------------------
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        update_chat_id(update)
-        update_streak()
-
-        text = update.message.text.lower().strip()
-
-        response, event = reply(text)
-
-        save_memory(MEMORY)
-
-        await update.message.reply_text(response)
-        await send_gif(update, event, len(pending_tasks()))
-
-    except Exception as e:
-        print("ERROR:", e)
-        traceback.print_exc()
-
-# -------------------------
-# RUN
-# -------------------------
+# ==================================================
+# MAIN
+# ==================================================
 def main():
+    auto_backup()
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
