@@ -20,7 +20,7 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# MEMORY (NO CHAT ID REQUIRED MANUALLY)
+# MEMORY
 # -------------------------
 MEMORY_PAGE_NAME = "JESSE_MEMORY"
 
@@ -84,16 +84,7 @@ def save_memory(mem):
 MEMORY = load_memory()
 
 # -------------------------
-# GIFS
-# -------------------------
-GIFS = {
-    "add": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
-    "done": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
-    "focus": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"]
-}
-
-# -------------------------
-# TASKS (UNCHANGED)
+# TASKS
 # -------------------------
 def get_tasks():
     try:
@@ -118,14 +109,19 @@ def extract_status(page):
         for v in props.values():
             if v.get("type") == "select":
                 sel = v.get("select")
-                if sel:
-                    return sel["name"].lower()
+                if sel and sel.get("name"):
+                    return sel["name"].strip().lower()
         return "pending"
     except:
         return "pending"
 
 def pending_tasks():
-    return [t for t in get_tasks() if extract_status(t) != "done"]
+    tasks = get_tasks()
+    result = []
+    for t in tasks:
+        if extract_status(t) != "done":
+            result.append(t)
+    return result
 
 def save_task(text):
     notion.pages.create(
@@ -163,63 +159,140 @@ def update_streak():
         MEMORY["last_day"] = today
 
 # -------------------------
-# JESSE TEXT
+# JESSE ENGINE
 # -------------------------
-def jesse(text):
-    return random.choice([
-        "Yo. ",
-        "Alright. ",
-        "Aight. ",
-        "Bro. "
-    ]) + text + random.choice(["", " bitch.", " let's go.", " yo."])
+def mood(task_count):
+    if task_count == 0:
+        return "empty"
+    if task_count <= 2:
+        return "calm"
+    if task_count <= 5:
+        return "focused"
+    return "overloaded"
+
+def jesse(event, task_count):
+    update_streak()
+
+    moods = {
+        "calm": ["Yo. ", "Alright. ", "Aight. "],
+        "focused": ["Lock in. ", "Yo. ", "Listen. "],
+        "overloaded": ["Yo... ", "Bro... ", "This is a lot. "],
+        "empty": ["... ", "Yo. ", "Damn. "]
+    }
+
+    lines = {
+        "task_added": ["Added it.", "Mission added.", "Got it.", "Hell yeah."],
+        "task_done": ["Hell yeah.", "Done.", "Off the board.", "Nice."],
+        "not_found": ["Yo... not here.", "Nah.", "You sure?"],
+        "list": ["Here's the board:", "Current missions:", "Alright:"],
+        "empty": ["Nothing left.", "Board's clean.", "We’re done."],
+        "focus": ["Do this → ", "Focus → ", "Only this → "]
+    }
+
+    m = mood(task_count)
+
+    base = random.choice(moods[m])
+    text = random.choice(lines.get(event, ["Yo."]))
+
+    suffixes = ["", " yo.", " bitch.", " let's go.", " keep moving."]
+    return base + text + random.choice(suffixes)
 
 # -------------------------
-# CHAT ID AUTO DETECTION
+# GIF ENGINE
+# -------------------------
+GIFS = {
+    "add": {
+        "calm": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
+        "focused": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
+        "overloaded": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
+        "empty": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"]
+    },
+    "done": {
+        "calm": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
+        "focused": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
+        "overloaded": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
+        "empty": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"]
+    },
+    "focus": {
+        "calm": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
+        "focused": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
+        "overloaded": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
+        "empty": []
+    }
+}
+
+def get_gif(event, task_count):
+    if task_count == 0:
+        m = "empty"
+    elif task_count <= 2:
+        m = "calm"
+    elif task_count <= 5:
+        m = "focused"
+    else:
+        m = "overloaded"
+
+    pool = GIFS.get(event, {}).get(m, [])
+    return random.choice(pool) if pool else None
+
+async def send_gif(update: Update, event: str, task_count: int):
+    try:
+        gif = get_gif(event, task_count)
+        if not gif:
+            return
+
+        await update.get_bot().send_animation(
+            chat_id=update.effective_chat.id,
+            animation=gif
+        )
+    except:
+        pass
+
+# -------------------------
+# CHAT ID AUTO SAVE
 # -------------------------
 def update_chat_id(update: Update):
-    global MEMORY
-
-    chat_id = update.effective_chat.id
-
-    if MEMORY.get("chat_id") is None:
-        MEMORY["chat_id"] = chat_id
-        save_memory(MEMORY)
+    MEMORY["chat_id"] = update.effective_chat.id
 
 # -------------------------
 # CORE LOGIC
 # -------------------------
 def reply(text):
     task_count = len(pending_tasks())
-
-    if text == "add":
-        return jesse("Added task."), "add"
-
-    if text == "done":
-        return jesse("Marked done."), "done"
+    MEMORY["conversations"] += 1
 
     if text == "list":
-        return jesse("Listing tasks."), "list"
+        tasks = pending_tasks()
+        if not tasks:
+            return jesse("empty", task_count), "empty"
 
-    return jesse("Noted."), "default"
+        body = "\n- ".join(extract_title(t) for t in tasks)
+        return jesse("list", task_count) + "\n- " + body, "list"
+
+    if text == "focus":
+        tasks = pending_tasks()
+        if not tasks:
+            return jesse("empty", task_count), "empty"
+
+        return jesse("focus", task_count) + extract_title(tasks[0]), "focus"
+
+    if text.startswith("add"):
+        task = text.replace("add", "", 1).strip()
+        save_task(task)
+        MEMORY["tasks_added"] += 1
+        return jesse("task_added", task_count), "add"
+
+    if text.startswith("done"):
+        task = text.replace("done", "", 1).strip()
+        ok = mark_done(task)
+        if ok:
+            MEMORY["tasks_done"] += 1
+            return jesse("task_done", task_count), "done"
+        return jesse("not_found", task_count), "default"
+
+    return jesse("list", task_count), "default"
 
 # -------------------------
-# GIF ENGINE
-# -------------------------
-async def send_gif(update: Update, event: str):
-    try:
-        gifs = GIFS.get(event, [])
-        if not gifs:
-            return
-
-        await update.get_bot().send_animation(
-            chat_id=update.effective_chat.id,
-            animation=random.choice(gifs)
-        )
-    except:
-        pass
-
-# -------------------------
-# DAILY RECAP (AUTO CHAT ID)
+# DAILY RECAP
 # -------------------------
 async def send_daily_recap(bot):
     global MEMORY
@@ -229,17 +302,13 @@ async def send_daily_recap(bot):
             today = datetime.date.today().isoformat()
 
             if MEMORY.get("chat_id") and MEMORY.get("last_recap_date") != today:
-
                 msg = (
                     f"Yo.\n"
                     f"Streak: {MEMORY.get('streak', 0)}\n"
                     f"Pending: {len(pending_tasks())}"
                 )
 
-                await bot.send_message(
-                    chat_id=MEMORY["chat_id"],
-                    text=msg
-                )
+                await bot.send_message(chat_id=MEMORY["chat_id"], text=msg)
 
                 MEMORY["last_recap_date"] = today
                 save_memory(MEMORY)
@@ -264,7 +333,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_memory(MEMORY)
 
         await update.message.reply_text(response)
-        await send_gif(update, event)
+        await send_gif(update, event, len(pending_tasks()))
 
     except Exception as e:
         print("ERROR:", e)
