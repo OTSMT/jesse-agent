@@ -157,79 +157,48 @@ def update_streak():
 # JESSE RESPONSES
 # -------------------------
 JESSE_LINES = {
-    "task_added": ["Added it.", "Got it.", "Locked in.", "Done.", "Say less.", "Bet."],
-    "task_done": ["Nice.", "Good.", "Done.", "Off the board.", "Clean.", "Hell yeah."],
+    "task_added": ["Added it.", "Got it.", "Locked in.", "Say less.", "Bet.", "On it."],
+    "task_done": ["Yeah, bitch!", "Done.", "Nice.", "Off the board.", "Clean.", "We cookin'."],
     "not_found": ["Yo… not here.", "That’s not in the list.", "You sure?", "Nah, not found."],
     "list": ["Here’s the board:", "Current missions:", "Alright, here’s everything:"],
     "empty": ["Nothing left.", "Board’s clean.", "We’re done here."],
     "focus": ["Do this → ", "Focus → ", "Only this → "]
 }
 
-def mood(task_count):
-    if task_count == 0:
-        return "empty"
-    if task_count <= 2:
-        return "calm"
-    if task_count <= 5:
-        return "focused"
-    return "overloaded"
-
-def jesse(event, task_count):
-    update_streak()
-
-    moods = {
-        "calm": ["Yo. ", "Alright. ", "Aight. "],
-        "focused": ["Lock in. ", "Yo. ", "Listen. "],
-        "overloaded": ["Yo... ", "Bro... ", "This is a lot. "],
-        "empty": ["... ", "Yo. ", "Damn. "]
-    }
-
-    base = random.choice(moods[mood(task_count)])
-    text = random.choice(JESSE_LINES.get(event, ["Yo."]))
-    suffix = random.choice(["", " yo.", " let's go.", " keep moving."])
-
-    return base + text + suffix
-
 # -------------------------
-# GIF SYSTEM (REAL + FILE_ID CAPTURE READY)
+# GIF SYSTEM (YOUR FILE IDS)
 # -------------------------
 GIFS = {
-    "add": {
-        "calm": [],
-        "focused": [],
-        "overloaded": [],
-        "empty": []
-    },
-    "task_done": {
-        "calm": [],
-        "focused": [],
-        "overloaded": [],
-        "empty": []
-    },
-    "focus": {
-        "calm": [],
-        "focused": [],
-        "overloaded": [],
-        "empty": []
-    },
-    "default": {
-        "calm": [],
-        "focused": [],
-        "overloaded": [],
-        "empty": []
-    }
+    "task_added": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ],
+
+    "task_done": [
+        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
+        "CgACAgQAAxkBAAIEeWo_F9QX-x12U1EejZaXVvwcHPtsAAJKAwACaoAEU0BH5rBCYtisPAQ"
+    ],
+
+    "focus": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ",
+        "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA"
+    ],
+
+    "add": [
+        "CgACAgQAAxkBAAIEeWo_F9QX-x12U1EejZaXVvwcHPtsAAJKAwACaoAEU0BH5rBCYtisPAQ"
+    ],
+
+    "default": [
+        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
+    ]
 }
 
-def get_gif(event, task_count):
-    m = mood(task_count)
-    pool = GIFS.get(event, {}).get(m, [])
-    if not pool:
-        return None
-    return random.choice(pool)
+def get_gif(event):
+    pool = GIFS.get(event, GIFS["default"])
+    return random.choice(pool) if pool else None
 
-async def send_gif(update: Update, event: str, task_count: int):
+async def send_gif(update: Update, event: str):
     try:
-        gif = get_gif(event, task_count)
+        gif = get_gif(event)
         if not gif:
             return
 
@@ -237,18 +206,6 @@ async def send_gif(update: Update, event: str, task_count: int):
             chat_id=update.effective_chat.id,
             animation=gif
         )
-    except:
-        pass
-
-# -------------------------
-# GIF CAPTURE (IMPORTANT)
-# -------------------------
-async def capture_gif(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        if update.message and update.message.animation:
-            file_id = update.message.animation.file_id
-            print("GIF FILE_ID:", file_id)
-            await update.message.reply_text(f"Saved GIF:\n{file_id}")
     except:
         pass
 
@@ -262,33 +219,33 @@ def reply(text):
     if text == "list":
         tasks = pending_tasks()
         if not tasks:
-            return jesse("empty", task_count), "empty"
+            return "Nothing left.", "empty"
 
         body = "\n- ".join(extract_title(t) for t in tasks)
-        return jesse("list", task_count) + "\n- " + body, "list"
+        return random.choice(JESSE_LINES["list"]) + "\n- " + body, "list"
 
     if text == "focus":
         tasks = pending_tasks()
         if not tasks:
-            return jesse("empty", task_count), "empty"
+            return "Nothing left.", "empty"
 
-        return jesse("focus", task_count) + extract_title(tasks[0]), "focus"
+        return random.choice(JESSE_LINES["focus"]) + extract_title(tasks[0]), "focus"
 
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
         save_task(task)
         MEMORY["tasks_added"] += 1
-        return jesse("task_added", task_count), "add"
+        return random.choice(JESSE_LINES["task_added"]), "task_added"
 
     if text.startswith("done"):
         task = text.replace("done", "", 1).strip()
         ok = mark_done(task)
         if ok:
             MEMORY["tasks_done"] += 1
-            return jesse("task_done", task_count), "done"
-        return jesse("not_found", task_count), "default"
+            return random.choice(JESSE_LINES["task_done"]), "task_done"
+        return random.choice(JESSE_LINES["not_found"]), "default"
 
-    return jesse("list", task_count), "default"
+    return "Noted.", "default"
 
 # -------------------------
 # HANDLER
@@ -302,7 +259,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_memory(MEMORY)
 
         await update.message.reply_text(response)
-        await send_gif(update, event, len(pending_tasks()))
+        await send_gif(update, event)
 
     except Exception as e:
         print("ERROR:", e)
@@ -315,9 +272,6 @@ def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-
-    # 👇 THIS enables GIF file_id capture
-    app.add_handler(MessageHandler(filters.ANIMATION, capture_gif))
 
     app.run_polling()
 
