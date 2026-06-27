@@ -20,15 +20,33 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# GIFS
+# GIFS (MOOD + EVENT)
 # -------------------------
 GIFS = {
-    "add": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
-    "done": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
-    "focus": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
-    "list": [],
-    "empty": [],
-    "default": []
+    "add": {
+        "calm": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
+        "focused": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
+        "overloaded": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
+        "empty": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"]
+    },
+    "done": {
+        "calm": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
+        "focused": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
+        "overloaded": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
+        "empty": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"]
+    },
+    "focus": {
+        "calm": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
+        "focused": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
+        "overloaded": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
+        "empty": []
+    },
+    "empty": {
+        "calm": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
+        "focused": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
+        "overloaded": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
+        "empty": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"]
+    }
 }
 
 # -------------------------
@@ -37,8 +55,7 @@ GIFS = {
 def get_tasks():
     try:
         return notion.databases.query(database_id=NOTION_DB_ID).get("results", [])
-    except Exception as e:
-        print("Notion error:", e)
+    except:
         return []
 
 def extract_title(page):
@@ -87,7 +104,7 @@ def mark_done(name):
     return False
 
 # -------------------------
-# JESSE MEMORY (NOTION)
+# MEMORY
 # -------------------------
 MEMORY_PAGE_NAME = "JESSE_MEMORY"
 
@@ -142,8 +159,8 @@ def save_memory(mem):
                 }
             },
         )
-    except Exception as e:
-        print("Memory save error:", e)
+    except:
+        pass
 
 MEMORY = load_memory()
 
@@ -164,7 +181,7 @@ def update_streak():
         MEMORY["last_day"] = today
 
 # -------------------------
-# JESSE ENGINE
+# MOOD
 # -------------------------
 def mood(task_count):
     if task_count == 0:
@@ -175,6 +192,9 @@ def mood(task_count):
         return "focused"
     return "overloaded"
 
+# -------------------------
+# JESSE TEXT ENGINE
+# -------------------------
 def jesse(event, task_count):
     update_streak()
 
@@ -208,11 +228,44 @@ def jesse(event, task_count):
     return response
 
 # -------------------------
+# GIF ENGINE (FIXED + MOOD AWARE)
+# -------------------------
+def get_gif(event, task_count):
+    if task_count == 0:
+        m = "empty"
+    elif task_count <= 2:
+        m = "calm"
+    elif task_count <= 5:
+        m = "focused"
+    else:
+        m = "overloaded"
+
+    pool = GIFS.get(event, {}).get(m, [])
+
+    if not pool:
+        return None
+
+    return random.choice(pool)
+
+async def send_gif(update: Update, event: str, task_count: int):
+    try:
+        gif = get_gif(event, task_count)
+
+        if not gif:
+            return
+
+        await update.get_bot().send_animation(
+            chat_id=update.effective_chat.id,
+            animation=gif
+        )
+    except:
+        pass
+
+# -------------------------
 # CORE LOGIC
 # -------------------------
 def reply(text):
     task_count = len(pending_tasks())
-
     MEMORY["conversations"] += 1
 
     if text == "list":
@@ -240,25 +293,10 @@ def reply(text):
         ok = mark_done(task)
         if ok:
             MEMORY["tasks_done"] += 1
-        return jesse("task_done" if ok else "not_found", task_count), "done"
+            return jesse("task_done", task_count), "done"
+        return jesse("not_found", task_count), "default"
 
-    return jesse("task_added", task_count), "default"
-
-# -------------------------
-# GIFS
-# -------------------------
-async def send_gif(update: Update, event: str):
-    try:
-        gifs = GIFS.get(event, GIFS["default"])
-        if not gifs:
-            return
-
-        await update.get_bot().send_animation(
-            chat_id=update.effective_chat.id,
-            animation=random.choice(gifs)
-        )
-    except:
-        pass
+    return jesse("list", task_count), "default"
 
 # -------------------------
 # DAILY RECAP
@@ -275,19 +313,19 @@ async def send_daily_recap(bot):
                 streak = MEMORY.get("streak", 0)
 
                 if task_count == 0:
-                    msg = f"Yo.\n\nBoard is clean.\nStreak: {streak}\n\nHell yeah, bitch."
+                    msg = f"Yo.\nBoard is clean.\nStreak: {streak}\nHell yeah, bitch."
                 elif task_count <= 3:
-                    msg = f"Yo.\n\nLooking good.\nPending: {task_count}\nStreak: {streak}"
+                    msg = f"Yo.\nLooking good.\nPending: {task_count}\nStreak: {streak}"
                 else:
-                    msg = f"Yo...\n\nWe’re behind.\nPending: {task_count}\nStreak: {streak}"
+                    msg = f"Yo...\nWe’re behind.\nPending: {task_count}\nStreak: {streak}"
 
                 await bot.send_message(chat_id=YOUR_CHAT_ID, text=msg)
 
                 MEMORY["last_recap_date"] = today
                 save_memory(MEMORY)
 
-        except Exception as e:
-            print("Recap error:", e)
+        except:
+            pass
 
         await asyncio.sleep(3600)
 
@@ -303,7 +341,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_memory(MEMORY)
 
         await update.message.reply_text(response)
-        await send_gif(update, event)
+        await send_gif(update, event, len(pending_tasks()))
 
     except Exception as e:
         print("ERROR:", e)
