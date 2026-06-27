@@ -46,7 +46,12 @@ def load_memory():
         "last_day": None,
         "conversations": 0,
         "last_recap_date": None,
-        "chat_id": None
+        "chat_id": None,
+
+        # SMART JESSE ADDITIONS
+        "recent_actions": [],
+        "fail_streak": 0,
+        "success_streak": 0,
     }
 
     if not page:
@@ -154,6 +159,32 @@ def update_streak():
         MEMORY["last_day"] = today
 
 # -------------------------
+# SMART JESSE BEHAVIOR SYSTEM
+# -------------------------
+def track_action(action):
+    MEMORY["recent_actions"].append(action)
+
+    if len(MEMORY["recent_actions"]) > 5:
+        MEMORY["recent_actions"].pop(0)
+
+def analyze_behavior():
+    recent = MEMORY.get("recent_actions", [])
+
+    adds = recent.count("add")
+    dones = recent.count("done")
+
+    if adds >= 3 and dones == 0:
+        return "overwhelming"
+
+    if dones >= adds and adds > 0:
+        return "productive"
+
+    if adds == 0 and dones == 0:
+        return "idle"
+
+    return "normal"
+
+# -------------------------
 # JESSE RESPONSES
 # -------------------------
 JESSE_LINES = {
@@ -166,27 +197,20 @@ JESSE_LINES = {
 }
 
 # -------------------------
-# GIF SYSTEM (YOUR FILE IDS)
+# GIF SYSTEM
 # -------------------------
 GIFS = {
     "task_added": [
         "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
     ],
-
     "task_done": [
         "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
         "CgACAgQAAxkBAAIEeWo_F9QX-x12U1EejZaXVvwcHPtsAAJKAwACaoAEU0BH5rBCYtisPAQ"
     ],
-
     "focus": [
         "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ",
         "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA"
     ],
-
-    "add": [
-        "CgACAgQAAxkBAAIEeWo_F9QX-x12U1EejZaXVvwcHPtsAAJKAwACaoAEU0BH5rBCYtisPAQ"
-    ],
-
     "default": [
         "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
     ]
@@ -208,6 +232,44 @@ async def send_gif(update: Update, event: str):
         )
     except:
         pass
+
+# -------------------------
+# SMART JESSE ENGINE
+# -------------------------
+def mood(task_count):
+    if task_count == 0:
+        return "empty"
+    if task_count <= 2:
+        return "calm"
+    if task_count <= 5:
+        return "focused"
+    return "overloaded"
+
+def jesse(event, task_count):
+    update_streak()
+
+    behavior = analyze_behavior()
+
+    moods = {
+        "calm": ["Yo. ", "Alright. ", "Aight. "],
+        "focused": ["Lock in. ", "Yo. ", "Listen. "],
+        "overloaded": ["Yo... ", "Bro... ", "This is a lot. "],
+        "empty": ["... ", "Yo. ", "Damn. "]
+    }
+
+    behavior_lines = {
+        "overwhelming": ["Yo slow down.", "You're stacking too much.", "Relax for a sec."],
+        "productive": ["We moving clean.", "This is good.", "Locked in behavior."],
+        "idle": ["You disappeared.", "We doing nothing?", "Hello?"],
+        "normal": [""]
+    }
+
+    base = random.choice(moods[mood(task_count)])
+    behavior_layer = random.choice(behavior_lines[behavior])
+    event_line = random.choice(JESSE_LINES.get(event, ["Yo."]))
+    suffix = random.choice(["", " yo.", " let's go.", " keep moving."])
+
+    return base + behavior_layer + event_line + suffix
 
 # -------------------------
 # CORE LOGIC
@@ -235,14 +297,21 @@ def reply(text):
         task = text.replace("add", "", 1).strip()
         save_task(task)
         MEMORY["tasks_added"] += 1
+
+        track_action("add")
+
         return random.choice(JESSE_LINES["task_added"]), "task_added"
 
     if text.startswith("done"):
         task = text.replace("done", "", 1).strip()
         ok = mark_done(task)
+
+        track_action("done")
+
         if ok:
             MEMORY["tasks_done"] += 1
             return random.choice(JESSE_LINES["task_done"]), "task_done"
+
         return random.choice(JESSE_LINES["not_found"]), "default"
 
     return "Noted.", "default"
@@ -270,9 +339,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -------------------------
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-
     app.run_polling()
 
 if __name__ == "__main__":
