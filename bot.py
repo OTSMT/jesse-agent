@@ -207,7 +207,7 @@ def jesse(text, task_count):
     m = mood(task_count)
 
     base = {
-        "chaos": ["Yoâ€¦ ", "Broâ€¦ "],
+        "chaos": ["Yo… ", "Bro… "],
         "hustler": ["Yo. ", "Aight. "],
         "disciplined": ["Locked in. ", "Respect. "],
         "machine": ["No stopping. ", "Execution. "],
@@ -224,7 +224,7 @@ def jesse(text, task_count):
     suffix = {
         "calm": [".", " We good."],
         "focused": [" Stay sharp.", " Lock in."],
-        "busy": [" Keep going.", " Donâ€™t stop."],
+        "busy": [" Keep going.", " Don’t stop."],
         "overloaded": [" Fix this.", " Too much."],
     }.get(m, [""])
 
@@ -261,7 +261,7 @@ def reply(text):
     if t == "focus":
         tasks = pending_tasks()
         return jesse(
-            "Do this â†’ " + extract_title(tasks[0]) if tasks else "No tasks.",
+            "Do this → " + extract_title(tasks[0]) if tasks else "No tasks.",
             task_count
         )
 
