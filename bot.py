@@ -174,24 +174,24 @@ def jesse(text, task_count):
     m = mood(task_count)
 
     prefix = {
-        "balanced": ["Yo. ", "Alright. "],
-        "experienced": ["Back again. ", "Same thing huh. "],
-        "disciplined": ["I respect it. ", "Locked in. "],
-        "chaotic": ["Bro… ", "This is wild. "],
+        "balanced": ["Yo. ", "Yo bitch. ", "Alright. ", "Ayo. "],
+        "experienced": ["Back again. ", "Same thing huh. ", "Yo man. ", "We back at it. "],
+        "disciplined": ["I respect it. ", "Locked in. ", "Science, bitch. ", "Alright listen. "],
+        "chaotic": ["Bro… ", "This is wild. ", "Yo what the hell. ", "Nahhh. "],
     }.get(p, ["Yo. "])
 
     mood_prefix = {
-        "calm": ["Chill. ", "Alright. "],
-        "focused": ["Lock in. ", "Listen. "],
-        "busy": ["We moving. ", "Keep going. "],
-        "overloaded": ["Yo this is a lot. ", "We cooked. "],
+        "calm": ["Chill. ", "Alright. ", "Yo. "],
+        "focused": ["Lock in. ", "Listen. ", "Yo focus up. "],
+        "busy": ["We moving. ", "Keep going. ", "Yo we cooking. "],
+        "overloaded": ["Yo this is a lot. ", "We cooked. ", "This is bad, yo. "],
     }.get(m, ["Yo. "])
 
     suffix = {
-        "calm": [" we good.", ""],
-        "focused": [" stay sharp.", " you got this."],
-        "busy": [" keep going.", " we in it."],
-        "overloaded": [" we need cleanup.", " too much man."],
+        "calm": [" we good.", "", " bitch."],
+        "focused": [" stay sharp.", " you got this.", " let's go."],
+        "busy": [" keep going.", " we in it.", " don't stop now."],
+        "overloaded": [" we need cleanup.", " too much man.", " we gotta fix this."],
     }.get(m, [" yo."])
 
     return random.choice(prefix + mood_prefix) + text + random.choice(suffix)
