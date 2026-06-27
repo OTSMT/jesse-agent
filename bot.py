@@ -116,12 +116,7 @@ def extract_status(page):
         return "pending"
 
 def pending_tasks():
-    tasks = get_tasks()
-    result = []
-    for t in tasks:
-        if extract_status(t) != "done":
-            result.append(t)
-    return result
+    return [t for t in get_tasks() if extract_status(t) != "done"]
 
 def save_task(text):
     notion.pages.create(
@@ -198,40 +193,44 @@ def jesse(event, task_count):
     return base + text + random.choice(suffixes)
 
 # -------------------------
+# JESSE TASK BRAIN v2 (NEW)
+# -------------------------
+def rank_tasks(tasks):
+    ranked = []
+
+    for i, t in enumerate(tasks):
+        title = extract_title(t)
+
+        score = 0
+
+        # older tasks get higher priority (simple proxy: index order)
+        score += (i + 1)
+
+        # shorter tasks slightly easier → boost
+        if len(title) < 20:
+            score += 2
+
+        # streak pressure increases urgency
+        if MEMORY.get("streak", 0) >= 5:
+            score += 1
+
+        ranked.append((score, t))
+
+    ranked.sort(reverse=True, key=lambda x: x[0])
+    return [t for _, t in ranked]
+
+# -------------------------
 # GIF ENGINE
 # -------------------------
 GIFS = {
-    "add": {
-        "calm": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
-        "focused": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
-        "overloaded": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
-        "empty": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"]
-    },
-    "done": {
-        "calm": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
-        "focused": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
-        "overloaded": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
-        "empty": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"]
-    },
-    "focus": {
-        "calm": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
-        "focused": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
-        "overloaded": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
-        "empty": []
-    }
+    "add": ["gif1"],
+    "done": ["gif2"],
+    "focus": ["gif3"]
 }
 
 def get_gif(event, task_count):
-    if task_count == 0:
-        m = "empty"
-    elif task_count <= 2:
-        m = "calm"
-    elif task_count <= 5:
-        m = "focused"
-    else:
-        m = "overloaded"
-
-    pool = GIFS.get(event, {}).get(m, [])
+    m = mood(task_count)
+    pool = GIFS.get(event, [])
     return random.choice(pool) if pool else None
 
 async def send_gif(update: Update, event: str, task_count: int):
@@ -260,20 +259,27 @@ def reply(text):
     task_count = len(pending_tasks())
     MEMORY["conversations"] += 1
 
+    tasks = pending_tasks()
+
     if text == "list":
-        tasks = pending_tasks()
         if not tasks:
             return jesse("empty", task_count), "empty"
 
         body = "\n- ".join(extract_title(t) for t in tasks)
         return jesse("list", task_count) + "\n- " + body, "list"
 
+    # 🧠 NEW SMART FOCUS
     if text == "focus":
-        tasks = pending_tasks()
         if not tasks:
             return jesse("empty", task_count), "empty"
 
-        return jesse("focus", task_count) + extract_title(tasks[0]), "focus"
+        ranked = rank_tasks(tasks)
+        top = ranked[0]
+
+        return (
+            jesse("focus", task_count) + extract_title(top),
+            "focus"
+        )
 
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
@@ -308,7 +314,10 @@ async def send_daily_recap(bot):
                     f"Pending: {len(pending_tasks())}"
                 )
 
-                await bot.send_message(chat_id=MEMORY["chat_id"], text=msg)
+                await bot.send_message(
+                    chat_id=MEMORY["chat_id"],
+                    text=msg
+                )
 
                 MEMORY["last_recap_date"] = today
                 save_memory(MEMORY)
