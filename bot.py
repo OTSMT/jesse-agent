@@ -154,6 +154,43 @@ def update_streak():
         MEMORY["last_day"] = today
 
 # -------------------------
+# JESSE RESPONSES (FIXED SYSTEM)
+# -------------------------
+JESSE_LINES = {
+    "task_added": [
+        "Added it.", "Got it.", "Locked in.", "Done.",
+        "Say less.", "Bet.", "On the board.", "We got it.",
+        "Cool, added.", "Handled."
+    ],
+
+    "task_done": [
+        "Nice.", "Good.", "Done.", "Off the board.",
+        "Clean.", "Hell yeah.", "We move.", "That’s one down.",
+        "Solid.", "Easy."
+    ],
+
+    "not_found": [
+        "Yo… not here.", "That’s not in the list.",
+        "You sure?", "I don’t see it.", "Nah, not found."
+    ],
+
+    "list": [
+        "Here’s the board:", "Current missions:",
+        "Alright, here’s everything:", "This is what we got:"
+    ],
+
+    "empty": [
+        "Nothing left.", "Board’s clean.",
+        "We’re done here.", "All clear."
+    ],
+
+    "focus": [
+        "Do this → ", "Focus → ",
+        "Only this → ", "Lock onto → "
+    ]
+}
+
+# -------------------------
 # JESSE ENGINE
 # -------------------------
 def mood(task_count):
@@ -175,82 +212,14 @@ def jesse(event, task_count):
         "empty": ["... ", "Yo. ", "Damn. "]
     }
 
-    lines = {
-        "task_added": ["Added it.", "Mission added.", "Got it.", "Hell yeah."],
-        "task_done": ["Hell yeah.", "Done.", "Off the board.", "Nice."],
-        "not_found": ["Yo... not here.", "Nah.", "You sure?"],
-        "list": ["Here's the board:", "Current missions:", "Alright:"],
-        "empty": ["Nothing left.", "Board's clean.", "We’re done."],
-        "focus": ["Do this → ", "Focus → ", "Only this → "]
-    }
+    slang = ["", " yo.", " let's go.", " keep moving.", " bitch."]
 
-    m = mood(task_count)
+    base = random.choice(moods[mood(task_count)]) + random.choice(slang)
 
-    base = random.choice(moods[m])
-    text = random.choice(lines.get(event, ["Yo."]))
+    text = random.choice(JESSE_LINES.get(event, ["Yo."]))
 
-    suffixes = ["", " yo.", " bitch.", " let's go.", " keep moving."]
+    suffixes = ["", " yo.", " let's go.", " keep moving."]
     return base + text + random.choice(suffixes)
-
-# -------------------------
-# JESSE TASK BRAIN v2 (NEW)
-# -------------------------
-def rank_tasks(tasks):
-    ranked = []
-
-    for i, t in enumerate(tasks):
-        title = extract_title(t)
-
-        score = 0
-
-        # older tasks get higher priority (simple proxy: index order)
-        score += (i + 1)
-
-        # shorter tasks slightly easier → boost
-        if len(title) < 20:
-            score += 2
-
-        # streak pressure increases urgency
-        if MEMORY.get("streak", 0) >= 5:
-            score += 1
-
-        ranked.append((score, t))
-
-    ranked.sort(reverse=True, key=lambda x: x[0])
-    return [t for _, t in ranked]
-
-# -------------------------
-# GIF ENGINE
-# -------------------------
-GIFS = {
-    "add": ["gif1"],
-    "done": ["gif2"],
-    "focus": ["gif3"]
-}
-
-def get_gif(event, task_count):
-    m = mood(task_count)
-    pool = GIFS.get(event, [])
-    return random.choice(pool) if pool else None
-
-async def send_gif(update: Update, event: str, task_count: int):
-    try:
-        gif = get_gif(event, task_count)
-        if not gif:
-            return
-
-        await update.get_bot().send_animation(
-            chat_id=update.effective_chat.id,
-            animation=gif
-        )
-    except:
-        pass
-
-# -------------------------
-# CHAT ID AUTO SAVE
-# -------------------------
-def update_chat_id(update: Update):
-    MEMORY["chat_id"] = update.effective_chat.id
 
 # -------------------------
 # CORE LOGIC
@@ -259,27 +228,20 @@ def reply(text):
     task_count = len(pending_tasks())
     MEMORY["conversations"] += 1
 
-    tasks = pending_tasks()
-
     if text == "list":
+        tasks = pending_tasks()
         if not tasks:
             return jesse("empty", task_count), "empty"
 
         body = "\n- ".join(extract_title(t) for t in tasks)
         return jesse("list", task_count) + "\n- " + body, "list"
 
-    # 🧠 NEW SMART FOCUS
     if text == "focus":
+        tasks = pending_tasks()
         if not tasks:
             return jesse("empty", task_count), "empty"
 
-        ranked = rank_tasks(tasks)
-        top = ranked[0]
-
-        return (
-            jesse("focus", task_count) + extract_title(top),
-            "focus"
-        )
+        return jesse("focus", task_count) + extract_title(tasks[0]), "focus"
 
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
@@ -298,43 +260,10 @@ def reply(text):
     return jesse("list", task_count), "default"
 
 # -------------------------
-# DAILY RECAP
-# -------------------------
-async def send_daily_recap(bot):
-    global MEMORY
-
-    while True:
-        try:
-            today = datetime.date.today().isoformat()
-
-            if MEMORY.get("chat_id") and MEMORY.get("last_recap_date") != today:
-                msg = (
-                    f"Yo.\n"
-                    f"Streak: {MEMORY.get('streak', 0)}\n"
-                    f"Pending: {len(pending_tasks())}"
-                )
-
-                await bot.send_message(
-                    chat_id=MEMORY["chat_id"],
-                    text=msg
-                )
-
-                MEMORY["last_recap_date"] = today
-                save_memory(MEMORY)
-
-        except:
-            pass
-
-        await asyncio.sleep(3600)
-
-# -------------------------
 # HANDLER
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        update_chat_id(update)
-        update_streak()
-
         text = update.message.text.lower().strip()
 
         response, event = reply(text)
@@ -342,7 +271,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_memory(MEMORY)
 
         await update.message.reply_text(response)
-        await send_gif(update, event, len(pending_tasks()))
 
     except Exception as e:
         print("ERROR:", e)
@@ -353,11 +281,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -------------------------
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-
-    asyncio.get_event_loop().create_task(send_daily_recap(app.bot))
-
     app.run_polling()
 
 if __name__ == "__main__":
