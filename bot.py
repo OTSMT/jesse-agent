@@ -185,15 +185,13 @@ def jesse(event, task_count):
     }
 
     base = random.choice(moods[mood(task_count)])
-
     text = random.choice(JESSE_LINES.get(event, ["Yo."]))
-
     suffix = random.choice(["", " yo.", " let's go.", " keep moving."])
 
     return base + text + suffix
 
 # -------------------------
-# GIF SYSTEM (NEW SAFE LAYER)
+# GIF SYSTEM (REAL + FILE_ID CAPTURE READY)
 # -------------------------
 GIFS = {
     "add": {
@@ -239,6 +237,18 @@ async def send_gif(update: Update, event: str, task_count: int):
             chat_id=update.effective_chat.id,
             animation=gif
         )
+    except:
+        pass
+
+# -------------------------
+# GIF CAPTURE (IMPORTANT)
+# -------------------------
+async def capture_gif(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        if update.message and update.message.animation:
+            file_id = update.message.animation.file_id
+            print("GIF FILE_ID:", file_id)
+            await update.message.reply_text(f"Saved GIF:\n{file_id}")
     except:
         pass
 
@@ -303,7 +313,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -------------------------
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+    # 👇 THIS enables GIF file_id capture
+    app.add_handler(MessageHandler(filters.ANIMATION, capture_gif))
+
     app.run_polling()
 
 if __name__ == "__main__":
