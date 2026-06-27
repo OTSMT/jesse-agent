@@ -1,7 +1,6 @@
 import os
 import random
 import time
-import json
 import datetime
 import traceback
 
@@ -9,7 +8,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 from notion_client import Client
 
-print("BOT STARTED")
+print("JESSE BOT STARTED")
 
 # -------------------------
 # ENV
@@ -21,81 +20,31 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# GIFS
+# GIFS (by intent)
 # -------------------------
-JESSE_GIFS = {
-    "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
-    "done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
-    "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
+GIFS = {
+    "add": [
+        "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"
+    ],
+    "done": [
+        "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"
+    ],
+    "focus": [
+        "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"
+    ],
+    "list": [],
+    "empty": [],
+    "overloaded": []
 }
 
 # -------------------------
-# MEMORY (SINGLE USER)
-# -------------------------
-MEM_FILE = "jesse_memory.json"
-
-def load_memory():
-    try:
-        with open(MEM_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {
-            "tasks_added": 0,
-            "tasks_done": 0,
-            "last_seen": time.time(),
-            "streak": 0,
-            "last_day": None,
-            "weekly_added": 0,
-            "weekly_done": 0,
-            "week_start": time.time()
-        }
-
-MEMORY = load_memory()
-
-def save_memory():
-    with open(MEM_FILE, "w") as f:
-        json.dump(MEMORY, f)
-
-# -------------------------
-# STREAK + WEEK
-# -------------------------
-def update_streak():
-    today = datetime.date.today().isoformat()
-
-    if MEMORY["last_day"] != today:
-        yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
-
-        if MEMORY["last_day"] == yesterday:
-            MEMORY["streak"] += 1
-        else:
-            MEMORY["streak"] = 1
-
-        MEMORY["last_day"] = today
-
-def update_week():
-    if time.time() - MEMORY["week_start"] > 7 * 24 * 3600:
-        MEMORY["weekly_added"] = 0
-        MEMORY["weekly_done"] = 0
-        MEMORY["week_start"] = time.time()
-
-def update_activity():
-    now = time.time()
-
-    if now - MEMORY["last_seen"] > 6 * 3600:
-        MEMORY["streak"] = max(0, MEMORY["streak"] - 1)
-
-    MEMORY["last_seen"] = now
-
-    update_streak()
-    update_week()
-
-# -------------------------
-# NOTION
+# NOTION TASK HELPERS
 # -------------------------
 def get_tasks():
     try:
         return notion.databases.query(database_id=NOTION_DB_ID).get("results", [])
-    except:
+    except Exception as e:
+        print("Notion error:", e)
         return []
 
 def extract_title(page):
@@ -144,117 +93,205 @@ def mark_done(name):
     return False
 
 # -------------------------
-# PERSONALITY
+# JESSE MEMORY (NOTION-BASED)
 # -------------------------
-def get_personality():
-    ratio = MEMORY["tasks_done"] / max(1, MEMORY["tasks_added"])
+MEMORY_PAGE_NAME = "JESSE_MEMORY"
 
-    if MEMORY["streak"] >= 5:
-        return "disciplined"
+def get_memory_page():
+    try:
+        pages = notion.databases.query(database_id=NOTION_DB_ID).get("results", [])
+        for p in pages:
+            title = extract_title(p)
+            if title.strip().upper() == MEMORY_PAGE_NAME:
+                return p
+    except Exception as e:
+        print("Memory fetch error:", e)
+    return None
 
-    if ratio < 0.3:
-        return "chaotic"
+def load_memory():
+    page = get_memory_page()
 
-    if MEMORY["tasks_added"] > 10:
-        return "experienced"
+    default = {
+        "tasks_added": 0,
+        "tasks_done": 0,
+        "streak": 0,
+        "last_day": None,
+        "conversations": 0,
+        "milestones": []
+    }
 
-    return "balanced"
+    if not page:
+        return default
 
+    try:
+        props = page.get("properties", {})
+        data_prop = props.get("Data", {})
+        rich = data_prop.get("rich_text", [])
+        if rich:
+            return {**default, **eval(rich[0]["plain_text"])}
+    except:
+        pass
+
+    return default
+
+def save_memory(mem):
+    page = get_memory_page()
+    if not page:
+        return
+
+    try:
+        notion.pages.update(
+            page_id=page["id"],
+            properties={
+                "Data": {
+                    "rich_text": [
+                        {"text": {"content": str(mem)}}
+                    ]
+                }
+            },
+        )
+    except Exception as e:
+        print("Memory save error:", e)
+
+MEMORY = load_memory()
+
+# -------------------------
+# STREAKS
+# -------------------------
+def update_streak():
+    today = datetime.date.today().isoformat()
+
+    if MEMORY["last_day"] != today:
+        yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+
+        if MEMORY["last_day"] == yesterday:
+            MEMORY["streak"] += 1
+        else:
+            MEMORY["streak"] = 1
+
+        MEMORY["last_day"] = today
+
+# -------------------------
+# PERSONALITY ENGINE
+# -------------------------
 def mood(task_count):
     if task_count == 0:
-        return "calm"
+        return "empty"
     if task_count <= 2:
-        return "focused"
+        return "calm"
     if task_count <= 5:
-        return "busy"
+        return "focused"
     return "overloaded"
 
-def jesse(text, task_count):
-    p = get_personality()
+def jesse(event, task_count):
+    update_streak()
+
+    moods = {
+        "calm": ["Yo. ", "Alright. ", "Aight. "],
+        "focused": ["Lock in. ", "Yo. ", "Alright listen. "],
+        "overloaded": ["Yo... ", "Bro... ", "This is a lot. "],
+        "empty": ["... ", "Yo. ", "Damn. "]
+    }
+
+    lines = {
+        "task_added": [
+            "Added. It's on the board.",
+            "Boom. Another mission.",
+            "Aight. Got it.",
+            "Hell yeah. We'll get to it."
+        ],
+        "task_done": [
+            "Hell yeah.",
+            "That's off the board.",
+            "Boom. Done.",
+            "Nice. One less problem."
+        ],
+        "not_found": [
+            "Yo... I don't see that.",
+            "Nah man, not here.",
+            "You sure?"
+        ],
+        "list": [
+            "Here's what's left:",
+            "Alright, here's the board:",
+            "Current missions:"
+        ],
+        "empty": [
+            "Dude... nothing left.",
+            "Board's clean.",
+            "We actually finished everything."
+        ],
+        "focus": [
+            "Do this → ",
+            "Focus up → ",
+            "Only this matters → "
+        ]
+    }
+
     m = mood(task_count)
 
-    prefix = {
-        "balanced": ["Yo. ", "Yo bitch. ", "Alright. ", "Ayo. "],
-        "experienced": ["Back again. ", "Same thing huh. ", "Yo man. ", "We back at it. "],
-        "disciplined": ["I respect it. ", "Locked in. ", "Science, bitch. ", "Alright listen. "],
-        "chaotic": ["Bro… ", "This is wild. ", "Yo what the hell. ", "Nahhh. "],
-    }.get(p, ["Yo. "])
+    base = random.choice(moods[m])
+    text = random.choice(lines.get(event, ["Yo."]))
 
-    mood_prefix = {
-        "calm": ["Chill. ", "Alright. ", "Yo. "],
-        "focused": ["Lock in. ", "Listen. ", "Yo focus up. "],
-        "busy": ["We moving. ", "Keep going. ", "Yo we cooking. "],
-        "overloaded": ["Yo this is a lot. ", "We cooked. ", "This is bad, yo. "],
-    }.get(m, ["Yo. "])
+    suffix_pool = ["", " yo.", " bitch.", " let's go.", " keep moving."]
 
-    suffix = {
-        "calm": [" we good.", "", " bitch."],
-        "focused": [" stay sharp.", " you got this.", " let's go."],
-        "busy": [" keep going.", " we in it.", " don't stop now."],
-        "overloaded": [" we need cleanup.", " too much man.", " we gotta fix this."],
-    }.get(m, [" yo."])
+    response = base + text + random.choice(suffix_pool)
 
-    return random.choice(prefix + mood_prefix) + text + random.choice(suffix)
+    # rare Easter egg
+    if random.random() < 0.03:
+        response += "\n\nYeah. Science."
+
+    return response
 
 # -------------------------
-# REPLY
+# BOT LOGIC
 # -------------------------
 def reply(text):
     task_count = len(pending_tasks())
 
+    MEMORY["conversations"] += 1
+
     if text == "list":
-        return jesse(
-            "Tasks:\n- " + "\n- ".join(extract_title(t) for t in pending_tasks())
-            if task_count else "No pending jobs.",
-            task_count
-        )
+        tasks = pending_tasks()
+        if not tasks:
+            return jesse("empty", task_count)
+
+        body = "\n- ".join(extract_title(t) for t in tasks)
+        return jesse("list", task_count) + "\n- " + body
 
     if text == "focus":
         t = pending_tasks()
-        return jesse(f"Do this → {extract_title(t[0])}" if t else "No tasks.", task_count)
+        if not t:
+            return jesse("empty", task_count)
+        return jesse("focus", task_count) + extract_title(t[0])
 
     if text.startswith("add"):
-        save_task(text.replace("add", "", 1).strip())
+        task = text.replace("add", "", 1).strip()
+        save_task(task)
         MEMORY["tasks_added"] += 1
-        MEMORY["weekly_added"] += 1
-        return jesse("Task added.", task_count)
+        return jesse("task_added", task_count)
 
     if text.startswith("done"):
-        ok = mark_done(text.replace("done", "", 1).strip())
+        task = text.replace("done", "", 1).strip()
+        ok = mark_done(task)
         if ok:
             MEMORY["tasks_done"] += 1
-            MEMORY["weekly_done"] += 1
-        return jesse("Done." if ok else "Not found.", task_count)
+        return jesse("task_done" if ok else "not_found", task_count)
 
-    return jesse("Noted.", task_count)
-
-# -------------------------
-# GIF
-# -------------------------
-async def send_gif(update: Update):
-    try:
-        await update.get_bot().send_animation(
-            chat_id=update.effective_chat.id,
-            animation=random.choice(list(JESSE_GIFS.values()))
-        )
-    except:
-        pass
+    return jesse("task_added", task_count)
 
 # -------------------------
-# HANDLER
+# TELEGRAM
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        update_activity()
-
         text = update.message.text.lower().strip()
 
         response = reply(text)
 
-        save_memory()
+        save_memory(MEMORY)
 
         await update.message.reply_text(response)
-        await send_gif(update)
 
     except Exception as e:
         print("ERROR:", e)
