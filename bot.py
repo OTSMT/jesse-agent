@@ -3,8 +3,6 @@ import random
 import asyncio
 import datetime
 import traceback
-import json
-import time
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
@@ -12,18 +10,18 @@ from notion_client import Client
 
 print("JESSE BOT STARTED")
 
-# ==================================================
+# -------------------------
 # ENV
-# ==================================================
+# -------------------------
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 
 notion = Client(auth=NOTION_API_KEY)
 
-# ==================================================
-# MEMORY (NOTION)
-# ==================================================
+# -------------------------
+# MEMORY
+# -------------------------
 MEMORY_PAGE_NAME = "JESSE_MEMORY"
 
 def get_memory_page():
@@ -50,10 +48,10 @@ def load_memory():
         "last_recap_date": None,
         "chat_id": None,
 
-        # EVOLUTION SYSTEM
-        "discipline_score": 50,
-        "consistency_score": 100,
-        "last_decay": str(datetime.date.today()),
+        # SMART JESSE ADDITIONS
+        "recent_actions": [],
+        "fail_streak": 0,
+        "success_streak": 0,
     }
 
     if not page:
@@ -63,7 +61,7 @@ def load_memory():
         props = page.get("properties", {})
         data = props.get("Data", {}).get("rich_text", [])
         if data:
-            return {**default, **json.loads(data[0]["plain_text"])}
+            return {**default, **eval(data[0]["plain_text"])}
     except:
         pass
 
@@ -80,7 +78,7 @@ def save_memory(mem):
             properties={
                 "Data": {
                     "rich_text": [
-                        {"text": {"content": json.dumps(mem)}}
+                        {"text": {"content": str(mem)}}
                     ]
                 }
             },
@@ -90,9 +88,9 @@ def save_memory(mem):
 
 MEMORY = load_memory()
 
-# ==================================================
-# TASK SYSTEM
-# ==================================================
+# -------------------------
+# TASKS
+# -------------------------
 def get_tasks():
     try:
         return notion.databases.query(database_id=NOTION_DB_ID).get("results", [])
@@ -144,9 +142,9 @@ def mark_done(name):
             return True
     return False
 
-# ==================================================
+# -------------------------
 # STREAK
-# ==================================================
+# -------------------------
 def update_streak():
     today = datetime.date.today().isoformat()
 
@@ -160,97 +158,122 @@ def update_streak():
 
         MEMORY["last_day"] = today
 
-# ==================================================
-# EVOLUTION ENGINE
-# ==================================================
-def evolve():
-    today = datetime.date.today().isoformat()
+# -------------------------
+# SMART JESSE BEHAVIOR SYSTEM
+# -------------------------
+def track_action(action):
+    MEMORY["recent_actions"].append(action)
 
-    if MEMORY.get("last_decay") != today:
-        MEMORY["discipline_score"] -= 1
-        MEMORY["discipline_score"] = max(0, MEMORY["discipline_score"])
-        MEMORY["last_decay"] = today
+    if len(MEMORY["recent_actions"]) > 5:
+        MEMORY["recent_actions"].pop(0)
 
-    added = MEMORY.get("tasks_added", 0)
-    done = MEMORY.get("tasks_done", 0)
+def analyze_behavior():
+    recent = MEMORY.get("recent_actions", [])
 
-    ratio = done / max(1, added)
-    MEMORY["consistency_score"] = int(ratio * 100)
+    adds = recent.count("add")
+    dones = recent.count("done")
 
-    if ratio > 0.8:
-        MEMORY["discipline_score"] += 2
-    elif ratio < 0.4:
-        MEMORY["discipline_score"] -= 2
+    if adds >= 3 and dones == 0:
+        return "overwhelming"
 
-    MEMORY["discipline_score"] = max(0, min(100, MEMORY["discipline_score"]))
+    if dones >= adds and adds > 0:
+        return "productive"
 
-def personality_state():
-    evolve()
+    if adds == 0 and dones == 0:
+        return "idle"
 
-    s = MEMORY["discipline_score"]
+    return "normal"
 
-    if s >= 80:
-        return "machine"
-    if s >= 60:
-        return "disciplined"
-    if s >= 40:
-        return "neutral"
-    if s >= 20:
-        return "lazy"
-    return "chaos"
+# -------------------------
+# JESSE RESPONSES
+# -------------------------
+JESSE_LINES = {
+    "task_added": ["Added it.", "Got it.", "Locked in.", "Say less.", "Bet.", "On it."],
+    "task_done": ["Yeah, bitch!", "Done.", "Nice.", "Off the board.", "Clean.", "We cookin'."],
+    "not_found": ["Yo… not here.", "That’s not in the list.", "You sure?", "Nah, not found."],
+    "list": ["Here’s the board:", "Current missions:", "Alright, here’s everything:"],
+    "empty": ["Nothing left.", "Board’s clean.", "We’re done here."],
+    "focus": ["Do this → ", "Focus → ", "Only this → "]
+}
 
-# ==================================================
-# JESSE ENGINE
-# ==================================================
+# -------------------------
+# GIF SYSTEM
+# -------------------------
+GIFS = {
+    "task_added": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ],
+    "task_done": [
+        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
+        "CgACAgQAAxkBAAIEeWo_F9QX-x12U1EejZaXVvwcHPtsAAJKAwACaoAEU0BH5rBCYtisPAQ"
+    ],
+    "focus": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ",
+        "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA"
+    ],
+    "default": [
+        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
+    ]
+}
+
+def get_gif(event):
+    pool = GIFS.get(event, GIFS["default"])
+    return random.choice(pool) if pool else None
+
+async def send_gif(update: Update, event: str):
+    try:
+        gif = get_gif(event)
+        if not gif:
+            return
+
+        await update.get_bot().send_animation(
+            chat_id=update.effective_chat.id,
+            animation=gif
+        )
+    except:
+        pass
+
+# -------------------------
+# SMART JESSE ENGINE
+# -------------------------
 def mood(task_count):
-    state = personality_state()
-
     if task_count == 0:
         return "empty"
-    if state in ["machine", "disciplined"]:
-        return "focused"
-    if state == "neutral":
+    if task_count <= 2:
         return "calm"
+    if task_count <= 5:
+        return "focused"
     return "overloaded"
 
 def jesse(event, task_count):
     update_streak()
 
-    state = personality_state()
+    behavior = analyze_behavior()
 
     moods = {
-        "calm": ["Yo. ", "Alright. "],
-        "focused": ["Locked in. ", "Yo. "],
-        "overloaded": ["Yo... ", "Bro... "],
-        "empty": ["... ", "Yo. "]
+        "calm": ["Yo. ", "Alright. ", "Aight. "],
+        "focused": ["Lock in. ", "Yo. ", "Listen. "],
+        "overloaded": ["Yo... ", "Bro... ", "This is a lot. "],
+        "empty": ["... ", "Yo. ", "Damn. "]
     }
 
-    lines = {
-        "task_added": ["Added it.", "Got it.", "Locked in."],
-        "task_done": ["Done.", "Nice.", "Off the board."],
-        "not_found": ["Not found.", "Nah.", "You sure?"],
-        "list": ["Board:", "Here’s everything:"],
-        "empty": ["Nothing left.", "Clean board."],
-        "focus": ["Do this → ", "Focus → "]
-    }
-
-    state_lines = {
-        "machine": "Elite execution.",
-        "disciplined": "Good consistency.",
-        "neutral": "",
-        "lazy": "You slipping.",
-        "chaos": "Fix this."
+    behavior_lines = {
+        "overwhelming": ["Yo slow down.", "You're stacking too much.", "Relax for a sec."],
+        "productive": ["We moving clean.", "This is good.", "Locked in behavior."],
+        "idle": ["You disappeared.", "We doing nothing?", "Hello?"],
+        "normal": [""]
     }
 
     base = random.choice(moods[mood(task_count)])
-    text = random.choice(lines.get(event, ["Yo."]))
-    suffix = state_lines[state]
+    behavior_layer = random.choice(behavior_lines[behavior])
+    event_line = random.choice(JESSE_LINES.get(event, ["Yo."]))
+    suffix = random.choice(["", " yo.", " let's go.", " keep moving."])
 
-    return base + text + " " + suffix
+    return base + behavior_layer + event_line + suffix
 
-# ==================================================
+# -------------------------
 # CORE LOGIC
-# ==================================================
+# -------------------------
 def reply(text):
     task_count = len(pending_tasks())
     MEMORY["conversations"] += 1
@@ -258,52 +281,62 @@ def reply(text):
     if text == "list":
         tasks = pending_tasks()
         if not tasks:
-            return jesse("empty", task_count), "empty"
+            return "Nothing left.", "empty"
 
         body = "\n- ".join(extract_title(t) for t in tasks)
-        return jesse("list", task_count) + "\n- " + body, "list"
+        return random.choice(JESSE_LINES["list"]) + "\n- " + body, "list"
 
     if text == "focus":
         tasks = pending_tasks()
         if not tasks:
-            return jesse("empty", task_count), "empty"
+            return "Nothing left.", "empty"
 
-        return jesse("focus", task_count) + extract_title(tasks[0]), "focus"
+        return random.choice(JESSE_LINES["focus"]) + extract_title(tasks[0]), "focus"
 
     if text.startswith("add"):
-        save_task(text.replace("add", "", 1).strip())
+        task = text.replace("add", "", 1).strip()
+        save_task(task)
         MEMORY["tasks_added"] += 1
-        return jesse("task_added", task_count), "add"
+
+        track_action("add")
+
+        return random.choice(JESSE_LINES["task_added"]), "task_added"
 
     if text.startswith("done"):
-        ok = mark_done(text.replace("done", "", 1).strip())
+        task = text.replace("done", "", 1).strip()
+        ok = mark_done(task)
+
+        track_action("done")
+
         if ok:
             MEMORY["tasks_done"] += 1
-            return jesse("task_done", task_count), "done"
-        return jesse("not_found", task_count), "default"
+            return random.choice(JESSE_LINES["task_done"]), "task_done"
 
-    return jesse("list", task_count), "default"
+        return random.choice(JESSE_LINES["not_found"]), "default"
 
-# ==================================================
+    return "Noted.", "default"
+
+# -------------------------
 # HANDLER
-# ==================================================
+# -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = update.message.text.lower().strip()
 
-        response, _ = reply(text)
+        response, event = reply(text)
 
         save_memory(MEMORY)
 
         await update.message.reply_text(response)
+        await send_gif(update, event)
 
     except Exception as e:
         print("ERROR:", e)
         traceback.print_exc()
 
-# ==================================================
+# -------------------------
 # RUN
-# ==================================================
+# -------------------------
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
