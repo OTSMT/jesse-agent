@@ -1,6 +1,6 @@
 import os
 import random
-import time
+import asyncio
 import datetime
 import traceback
 
@@ -20,18 +20,12 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# GIFS (by event)
+# GIFS
 # -------------------------
 GIFS = {
-    "add": [
-        "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"
-    ],
-    "done": [
-        "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"
-    ],
-    "focus": [
-        "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"
-    ],
+    "add": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
+    "done": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
+    "focus": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
     "list": [],
     "empty": [],
     "default": []
@@ -103,8 +97,8 @@ def get_memory_page():
         for p in pages:
             if extract_title(p).strip().upper() == MEMORY_PAGE_NAME:
                 return p
-    except Exception as e:
-        print("Memory fetch error:", e)
+    except:
+        pass
     return None
 
 def load_memory():
@@ -116,7 +110,7 @@ def load_memory():
         "streak": 0,
         "last_day": None,
         "conversations": 0,
-        "milestones": []
+        "last_recap_date": None
     }
 
     if not page:
@@ -192,38 +186,12 @@ def jesse(event, task_count):
     }
 
     lines = {
-        "task_added": [
-            "Added. It's on the board.",
-            "Boom. Another mission.",
-            "Aight. Got it.",
-            "Hell yeah. We'll get to it."
-        ],
-        "task_done": [
-            "Hell yeah.",
-            "That's off the board.",
-            "Boom. Done.",
-            "Nice. One less problem."
-        ],
-        "not_found": [
-            "Yo... I don't see that.",
-            "Nah man, not here.",
-            "You sure?"
-        ],
-        "list": [
-            "Here's what's left:",
-            "Alright, here's the board:",
-            "Current missions:"
-        ],
-        "empty": [
-            "Dude... nothing left.",
-            "Board's clean.",
-            "We actually finished everything."
-        ],
-        "focus": [
-            "Do this → ",
-            "Focus up → ",
-            "Only this matters → "
-        ]
+        "task_added": ["Added it.", "Boom. Mission added.", "Got it.", "Hell yeah."],
+        "task_done": ["Hell yeah.", "Done.", "Off the board.", "Nice."],
+        "not_found": ["Yo... not here.", "Nah.", "You sure?"],
+        "list": ["Here's the board:", "Current missions:", "Alright:"],
+        "empty": ["Nothing left.", "Board's clean.", "We’re done."],
+        "focus": ["Do this → ", "Focus → ", "Only this → "]
     }
 
     m = mood(task_count)
@@ -234,14 +202,13 @@ def jesse(event, task_count):
     suffixes = ["", " yo.", " bitch.", " let's go.", " keep moving."]
     response = base + text + random.choice(suffixes)
 
-    # rare Jesse moment
     if random.random() < 0.03:
         response += "\n\nYeah. Science."
 
     return response
 
 # -------------------------
-# BOT LOGIC
+# CORE LOGIC
 # -------------------------
 def reply(text):
     task_count = len(pending_tasks())
@@ -278,7 +245,7 @@ def reply(text):
     return jesse("task_added", task_count), "default"
 
 # -------------------------
-# GIF SENDER (FIXED)
+# GIFS
 # -------------------------
 async def send_gif(update: Update, event: str):
     try:
@@ -290,8 +257,39 @@ async def send_gif(update: Update, event: str):
             chat_id=update.effective_chat.id,
             animation=random.choice(gifs)
         )
-    except Exception as e:
-        print("GIF error:", e)
+    except:
+        pass
+
+# -------------------------
+# DAILY RECAP
+# -------------------------
+async def send_daily_recap(bot):
+    global MEMORY
+
+    while True:
+        try:
+            today = datetime.date.today().isoformat()
+
+            if MEMORY.get("last_recap_date") != today:
+                task_count = len(pending_tasks())
+                streak = MEMORY.get("streak", 0)
+
+                if task_count == 0:
+                    msg = f"Yo.\n\nBoard is clean.\nStreak: {streak}\n\nHell yeah, bitch."
+                elif task_count <= 3:
+                    msg = f"Yo.\n\nLooking good.\nPending: {task_count}\nStreak: {streak}"
+                else:
+                    msg = f"Yo...\n\nWe’re behind.\nPending: {task_count}\nStreak: {streak}"
+
+                await bot.send_message(chat_id=YOUR_CHAT_ID, text=msg)
+
+                MEMORY["last_recap_date"] = today
+                save_memory(MEMORY)
+
+        except Exception as e:
+            print("Recap error:", e)
+
+        await asyncio.sleep(3600)
 
 # -------------------------
 # TELEGRAM HANDLER
@@ -316,7 +314,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -------------------------
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+    asyncio.get_event_loop().create_task(send_daily_recap(app.bot))
+
     app.run_polling()
 
 if __name__ == "__main__":
