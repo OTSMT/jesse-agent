@@ -154,45 +154,17 @@ def update_streak():
         MEMORY["last_day"] = today
 
 # -------------------------
-# JESSE RESPONSES (FIXED SYSTEM)
+# JESSE RESPONSES
 # -------------------------
 JESSE_LINES = {
-    "task_added": [
-        "Added it.", "Got it.", "Locked in.", "Done.",
-        "Say less.", "Bet.", "On the board.", "We got it.",
-        "Cool, added.", "Handled."
-    ],
-
-    "task_done": [
-        "Nice.", "Good.", "Done.", "Off the board.",
-        "Clean.", "Hell yeah.", "We move.", "That’s one down.",
-        "Solid.", "Easy."
-    ],
-
-    "not_found": [
-        "Yo… not here.", "That’s not in the list.",
-        "You sure?", "I don’t see it.", "Nah, not found."
-    ],
-
-    "list": [
-        "Here’s the board:", "Current missions:",
-        "Alright, here’s everything:", "This is what we got:"
-    ],
-
-    "empty": [
-        "Nothing left.", "Board’s clean.",
-        "We’re done here.", "All clear."
-    ],
-
-    "focus": [
-        "Do this → ", "Focus → ",
-        "Only this → ", "Lock onto → "
-    ]
+    "task_added": ["Added it.", "Got it.", "Locked in.", "Done.", "Say less.", "Bet."],
+    "task_done": ["Nice.", "Good.", "Done.", "Off the board.", "Clean.", "Hell yeah."],
+    "not_found": ["Yo… not here.", "That’s not in the list.", "You sure?", "Nah, not found."],
+    "list": ["Here’s the board:", "Current missions:", "Alright, here’s everything:"],
+    "empty": ["Nothing left.", "Board’s clean.", "We’re done here."],
+    "focus": ["Do this → ", "Focus → ", "Only this → "]
 }
 
-# -------------------------
-# JESSE ENGINE
-# -------------------------
 def mood(task_count):
     if task_count == 0:
         return "empty"
@@ -212,14 +184,63 @@ def jesse(event, task_count):
         "empty": ["... ", "Yo. ", "Damn. "]
     }
 
-    slang = ["", " yo.", " let's go.", " keep moving.", " bitch."]
-
-    base = random.choice(moods[mood(task_count)]) + random.choice(slang)
+    base = random.choice(moods[mood(task_count)])
 
     text = random.choice(JESSE_LINES.get(event, ["Yo."]))
 
-    suffixes = ["", " yo.", " let's go.", " keep moving."]
-    return base + text + random.choice(suffixes)
+    suffix = random.choice(["", " yo.", " let's go.", " keep moving."])
+
+    return base + text + suffix
+
+# -------------------------
+# GIF SYSTEM (NEW SAFE LAYER)
+# -------------------------
+GIFS = {
+    "add": {
+        "calm": [],
+        "focused": [],
+        "overloaded": [],
+        "empty": []
+    },
+    "task_done": {
+        "calm": [],
+        "focused": [],
+        "overloaded": [],
+        "empty": []
+    },
+    "focus": {
+        "calm": [],
+        "focused": [],
+        "overloaded": [],
+        "empty": []
+    },
+    "default": {
+        "calm": [],
+        "focused": [],
+        "overloaded": [],
+        "empty": []
+    }
+}
+
+def get_gif(event, task_count):
+    m = mood(task_count)
+    pool = GIFS.get(event, {}).get(m, [])
+    if not pool:
+        return None
+    return random.choice(pool)
+
+async def send_gif(update: Update, event: str, task_count: int):
+    try:
+        gif = get_gif(event, task_count)
+        if not gif:
+            return
+
+        await update.get_bot().send_animation(
+            chat_id=update.effective_chat.id,
+            animation=gif
+        )
+    except:
+        pass
 
 # -------------------------
 # CORE LOGIC
@@ -271,6 +292,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_memory(MEMORY)
 
         await update.message.reply_text(response)
+        await send_gif(update, event, len(pending_tasks()))
 
     except Exception as e:
         print("ERROR:", e)
