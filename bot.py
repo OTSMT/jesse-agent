@@ -21,6 +21,29 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
+# GIFS
+# -------------------------
+JESSE_GIFS = {
+    "add": "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA",
+    "done": "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",
+    "focus": "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ",
+}
+
+def get_gif(action):
+    return JESSE_GIFS.get(action)
+
+async def send_gif(update: Update, action=None):
+    try:
+        gif = get_gif(action) if action else random.choice(list(JESSE_GIFS.values()))
+        if gif:
+            await update.get_bot().send_animation(
+                chat_id=update.effective_chat.id,
+                animation=gif
+            )
+    except:
+        pass
+
+# -------------------------
 # MEMORY
 # -------------------------
 MEM_FILE = "jesse_memory.json"
@@ -39,18 +62,11 @@ def load_memory():
             "weekly_added": 0,
             "weekly_done": 0,
             "week_start": time.time(),
-
             "trust": 5,
             "failures": 0,
-
-            # existing learning
             "ignore_map": {},
-
-            # -------------------------
-            # NEW: emotional memory layer
-            # -------------------------
             "relationship": "neutral",
-            "recent_performance": [],  # rolling window (0/1 success)
+            "recent_performance": [],
         }
 
 MEMORY = load_memory()
@@ -60,7 +76,7 @@ def save_memory():
         json.dump(MEMORY, f)
 
 # -------------------------
-# STREAK / WEEK (UNCHANGED)
+# STREAK / WEEK
 # -------------------------
 def update_streak():
     today = datetime.date.today().isoformat()
@@ -92,7 +108,7 @@ def update_activity():
     update_week()
 
 # -------------------------
-# NOTION (UNCHANGED)
+# NOTION
 # -------------------------
 def get_tasks():
     try:
@@ -146,12 +162,10 @@ def mark_done(name):
     return False
 
 # -------------------------
-# NEW: EMOTIONAL MEMORY ENGINE
+# EMOTIONAL MEMORY
 # -------------------------
 def update_recent(success: bool):
     MEMORY["recent_performance"].append(1 if success else 0)
-
-    # keep last 10 actions only (lightweight memory window)
     if len(MEMORY["recent_performance"]) > 10:
         MEMORY["recent_performance"].pop(0)
 
@@ -160,27 +174,22 @@ def get_recent_score():
         return 0.5
     return sum(MEMORY["recent_performance"]) / len(MEMORY["recent_performance"])
 
-def update_relationship():
+def get_relationship():
     score = get_recent_score()
     trust = MEMORY["trust"]
 
     if score > 0.8 and trust >= 7:
-        MEMORY["relationship"] = "proud"
-    elif score > 0.6:
-        MEMORY["relationship"] = "supportive"
-    elif score > 0.4:
-        MEMORY["relationship"] = "neutral"
-    elif score > 0.2:
-        MEMORY["relationship"] = "disappointed"
-    else:
-        MEMORY["relationship"] = "strict"
-
-def get_relationship():
-    update_relationship()
-    return MEMORY["relationship"]
+        return "proud"
+    if score > 0.6:
+        return "supportive"
+    if score > 0.4:
+        return "neutral"
+    if score > 0.2:
+        return "disappointed"
+    return "strict"
 
 # -------------------------
-# PERSONALITY CORE
+# PERSONALITY
 # -------------------------
 def mood(task_count):
     if task_count == 0:
@@ -237,42 +246,38 @@ def reply(text):
     task_count = len(pending_tasks())
     t = text.lower().strip()
 
-    if any(x in t for x in ["add"]):
-        save_task(t.replace("add", "", 1).strip())
+    if "add" in t:
+        task = t.replace("add", "", 1).strip()
+        save_task(task)
         MEMORY["tasks_added"] += 1
         MEMORY["weekly_added"] += 1
-
         update_recent(False)
-        return jesse("Task added.", task_count)
+        return jesse("Task added.", task_count), "add"
 
-    if any(x in t for x in ["done"]):
-        task_name = t.replace("done", "", 1).strip()
-        ok = mark_done(task_name)
+    if "done" in t:
+        task = t.replace("done", "", 1).strip()
+        ok = mark_done(task)
 
         if ok:
             MEMORY["tasks_done"] += 1
             MEMORY["weekly_done"] += 1
-            update_recent(True)
-        else:
-            update_recent(False)
 
-        return jesse("Done." if ok else "Not found.", task_count)
+        update_recent(ok)
+        return jesse("Done." if ok else "Not found.", task_count), "done" if ok else None
 
     if t == "focus":
         tasks = pending_tasks()
-        return jesse(
-            "Do this → " + extract_title(tasks[0]) if tasks else "No tasks.",
-            task_count
-        )
+        best = tasks[0] if tasks else None
+        return jesse("Do this → " + extract_title(best) if best else "No tasks.", task_count), "focus"
 
     if t == "list":
         return jesse(
             "Tasks:\n- " + "\n- ".join(extract_title(x) for x in pending_tasks())
             if task_count else "No tasks.",
             task_count
-        )
+        ), None
 
-    return jesse("Noted.", task_count)
+    return jesse("Noted.", task_count), None
 
 # -------------------------
 # HANDLER
@@ -282,11 +287,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_activity()
 
         text = update.message.text
-        response = reply(text)
+        response, action = reply(text)
 
         save_memory()
 
         await update.message.reply_text(response)
+
+        if action:
+            await send_gif(update, action)
 
     except Exception as e:
         print("ERROR:", e)
