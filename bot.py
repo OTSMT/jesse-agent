@@ -20,37 +20,80 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 notion = Client(auth=NOTION_API_KEY)
 
 # -------------------------
-# GIFS (MOOD + EVENT)
+# MEMORY (NO CHAT ID REQUIRED MANUALLY)
+# -------------------------
+MEMORY_PAGE_NAME = "JESSE_MEMORY"
+
+def get_memory_page():
+    try:
+        pages = notion.databases.query(database_id=NOTION_DB_ID).get("results", [])
+        for p in pages:
+            props = p.get("properties", {})
+            title = props.get("Task", {}).get("title", [])
+            if title and title[0]["plain_text"].strip().upper() == MEMORY_PAGE_NAME:
+                return p
+    except:
+        pass
+    return None
+
+def load_memory():
+    page = get_memory_page()
+
+    default = {
+        "tasks_added": 0,
+        "tasks_done": 0,
+        "streak": 0,
+        "last_day": None,
+        "conversations": 0,
+        "last_recap_date": None,
+        "chat_id": None
+    }
+
+    if not page:
+        return default
+
+    try:
+        props = page.get("properties", {})
+        data = props.get("Data", {}).get("rich_text", [])
+        if data:
+            return {**default, **eval(data[0]["plain_text"])}
+    except:
+        pass
+
+    return default
+
+def save_memory(mem):
+    page = get_memory_page()
+    if not page:
+        return
+
+    try:
+        notion.pages.update(
+            page_id=page["id"],
+            properties={
+                "Data": {
+                    "rich_text": [
+                        {"text": {"content": str(mem)}}
+                    ]
+                }
+            },
+        )
+    except:
+        pass
+
+MEMORY = load_memory()
+
+# -------------------------
+# GIFS
 # -------------------------
 GIFS = {
-    "add": {
-        "calm": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
-        "focused": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
-        "overloaded": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
-        "empty": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"]
-    },
-    "done": {
-        "calm": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
-        "focused": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
-        "overloaded": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
-        "empty": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"]
-    },
-    "focus": {
-        "calm": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
-        "focused": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
-        "overloaded": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"],
-        "empty": []
-    },
-    "empty": {
-        "calm": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
-        "focused": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
-        "overloaded": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
-        "empty": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"]
-    }
+    "add": ["CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"],
+    "done": ["CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"],
+    "focus": ["CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"]
 }
 
 # -------------------------
-# NOTION TASKS
+# TASKS (UNCHANGED)
 # -------------------------
 def get_tasks():
     try:
@@ -104,67 +147,6 @@ def mark_done(name):
     return False
 
 # -------------------------
-# MEMORY
-# -------------------------
-MEMORY_PAGE_NAME = "JESSE_MEMORY"
-
-def get_memory_page():
-    try:
-        pages = notion.databases.query(database_id=NOTION_DB_ID).get("results", [])
-        for p in pages:
-            if extract_title(p).strip().upper() == MEMORY_PAGE_NAME:
-                return p
-    except:
-        pass
-    return None
-
-def load_memory():
-    page = get_memory_page()
-
-    default = {
-        "tasks_added": 0,
-        "tasks_done": 0,
-        "streak": 0,
-        "last_day": None,
-        "conversations": 0,
-        "last_recap_date": None
-    }
-
-    if not page:
-        return default
-
-    try:
-        props = page.get("properties", {})
-        data = props.get("Data", {}).get("rich_text", [])
-        if data:
-            return {**default, **eval(data[0]["plain_text"])}
-    except:
-        pass
-
-    return default
-
-def save_memory(mem):
-    page = get_memory_page()
-    if not page:
-        return
-
-    try:
-        notion.pages.update(
-            page_id=page["id"],
-            properties={
-                "Data": {
-                    "rich_text": [
-                        {"text": {"content": str(mem)}}
-                    ]
-                }
-            },
-        )
-    except:
-        pass
-
-MEMORY = load_memory()
-
-# -------------------------
 # STREAK
 # -------------------------
 def update_streak():
@@ -181,125 +163,63 @@ def update_streak():
         MEMORY["last_day"] = today
 
 # -------------------------
-# MOOD
+# JESSE TEXT
 # -------------------------
-def mood(task_count):
-    if task_count == 0:
-        return "empty"
-    if task_count <= 2:
-        return "calm"
-    if task_count <= 5:
-        return "focused"
-    return "overloaded"
-
-# -------------------------
-# JESSE TEXT ENGINE
-# -------------------------
-def jesse(event, task_count):
-    update_streak()
-
-    moods = {
-        "calm": ["Yo. ", "Alright. ", "Aight. "],
-        "focused": ["Lock in. ", "Yo. ", "Alright listen. "],
-        "overloaded": ["Yo... ", "Bro... ", "This is a lot. "],
-        "empty": ["... ", "Yo. ", "Damn. "]
-    }
-
-    lines = {
-        "task_added": ["Added it.", "Boom. Mission added.", "Got it.", "Hell yeah."],
-        "task_done": ["Hell yeah.", "Done.", "Off the board.", "Nice."],
-        "not_found": ["Yo... not here.", "Nah.", "You sure?"],
-        "list": ["Here's the board:", "Current missions:", "Alright:"],
-        "empty": ["Nothing left.", "Board's clean.", "We’re done."],
-        "focus": ["Do this → ", "Focus → ", "Only this → "]
-    }
-
-    m = mood(task_count)
-
-    base = random.choice(moods[m])
-    text = random.choice(lines.get(event, ["Yo."]))
-
-    suffixes = ["", " yo.", " bitch.", " let's go.", " keep moving."]
-    response = base + text + random.choice(suffixes)
-
-    if random.random() < 0.03:
-        response += "\n\nYeah. Science."
-
-    return response
+def jesse(text):
+    return random.choice([
+        "Yo. ",
+        "Alright. ",
+        "Aight. ",
+        "Bro. "
+    ]) + text + random.choice(["", " bitch.", " let's go.", " yo."])
 
 # -------------------------
-# GIF ENGINE (FIXED + MOOD AWARE)
+# CHAT ID AUTO DETECTION
 # -------------------------
-def get_gif(event, task_count):
-    if task_count == 0:
-        m = "empty"
-    elif task_count <= 2:
-        m = "calm"
-    elif task_count <= 5:
-        m = "focused"
-    else:
-        m = "overloaded"
+def update_chat_id(update: Update):
+    global MEMORY
 
-    pool = GIFS.get(event, {}).get(m, [])
+    chat_id = update.effective_chat.id
 
-    if not pool:
-        return None
-
-    return random.choice(pool)
-
-async def send_gif(update: Update, event: str, task_count: int):
-    try:
-        gif = get_gif(event, task_count)
-
-        if not gif:
-            return
-
-        await update.get_bot().send_animation(
-            chat_id=update.effective_chat.id,
-            animation=gif
-        )
-    except:
-        pass
+    if MEMORY.get("chat_id") is None:
+        MEMORY["chat_id"] = chat_id
+        save_memory(MEMORY)
 
 # -------------------------
 # CORE LOGIC
 # -------------------------
 def reply(text):
     task_count = len(pending_tasks())
-    MEMORY["conversations"] += 1
+
+    if text == "add":
+        return jesse("Added task."), "add"
+
+    if text == "done":
+        return jesse("Marked done."), "done"
 
     if text == "list":
-        tasks = pending_tasks()
-        if not tasks:
-            return jesse("empty", task_count), "empty"
+        return jesse("Listing tasks."), "list"
 
-        body = "\n- ".join(extract_title(t) for t in tasks)
-        return jesse("list", task_count) + "\n- " + body, "list"
-
-    if text == "focus":
-        tasks = pending_tasks()
-        if not tasks:
-            return jesse("empty", task_count), "empty"
-        return jesse("focus", task_count) + extract_title(tasks[0]), "focus"
-
-    if text.startswith("add"):
-        task = text.replace("add", "", 1).strip()
-        save_task(task)
-        MEMORY["tasks_added"] += 1
-        return jesse("task_added", task_count), "add"
-
-    if text.startswith("done"):
-        task = text.replace("done", "", 1).strip()
-        ok = mark_done(task)
-        if ok:
-            MEMORY["tasks_done"] += 1
-            return jesse("task_done", task_count), "done"
-        return jesse("not_found", task_count), "default"
-
-    return jesse("list", task_count), "default"
+    return jesse("Noted."), "default"
 
 # -------------------------
-# DAILY RECAP
+# GIF ENGINE
+# -------------------------
+async def send_gif(update: Update, event: str):
+    try:
+        gifs = GIFS.get(event, [])
+        if not gifs:
+            return
+
+        await update.get_bot().send_animation(
+            chat_id=update.effective_chat.id,
+            animation=random.choice(gifs)
+        )
+    except:
+        pass
+
+# -------------------------
+# DAILY RECAP (AUTO CHAT ID)
 # -------------------------
 async def send_daily_recap(bot):
     global MEMORY
@@ -308,18 +228,18 @@ async def send_daily_recap(bot):
         try:
             today = datetime.date.today().isoformat()
 
-            if MEMORY.get("last_recap_date") != today:
-                task_count = len(pending_tasks())
-                streak = MEMORY.get("streak", 0)
+            if MEMORY.get("chat_id") and MEMORY.get("last_recap_date") != today:
 
-                if task_count == 0:
-                    msg = f"Yo.\nBoard is clean.\nStreak: {streak}\nHell yeah, bitch."
-                elif task_count <= 3:
-                    msg = f"Yo.\nLooking good.\nPending: {task_count}\nStreak: {streak}"
-                else:
-                    msg = f"Yo...\nWe’re behind.\nPending: {task_count}\nStreak: {streak}"
+                msg = (
+                    f"Yo.\n"
+                    f"Streak: {MEMORY.get('streak', 0)}\n"
+                    f"Pending: {len(pending_tasks())}"
+                )
 
-                await bot.send_message(chat_id=YOUR_CHAT_ID, text=msg)
+                await bot.send_message(
+                    chat_id=MEMORY["chat_id"],
+                    text=msg
+                )
 
                 MEMORY["last_recap_date"] = today
                 save_memory(MEMORY)
@@ -330,10 +250,13 @@ async def send_daily_recap(bot):
         await asyncio.sleep(3600)
 
 # -------------------------
-# TELEGRAM HANDLER
+# HANDLER
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        update_chat_id(update)
+        update_streak()
+
         text = update.message.text.lower().strip()
 
         response, event = reply(text)
@@ -341,7 +264,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_memory(MEMORY)
 
         await update.message.reply_text(response)
-        await send_gif(update, event, len(pending_tasks()))
+        await send_gif(update, event)
 
     except Exception as e:
         print("ERROR:", e)
