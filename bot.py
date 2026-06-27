@@ -193,24 +193,20 @@ def jesse(event, task_count):
     return base + text + random.choice(suffixes)
 
 # -------------------------
-# JESSE TASK BRAIN v2 (NEW)
+# JESSE TASK BRAIN v2
 # -------------------------
 def rank_tasks(tasks):
     ranked = []
 
     for i, t in enumerate(tasks):
         title = extract_title(t)
-
         score = 0
 
-        # older tasks get higher priority (simple proxy: index order)
         score += (i + 1)
 
-        # shorter tasks slightly easier → boost
         if len(title) < 20:
             score += 2
 
-        # streak pressure increases urgency
         if MEMORY.get("streak", 0) >= 5:
             score += 1
 
@@ -220,16 +216,21 @@ def rank_tasks(tasks):
     return [t for _, t in ranked]
 
 # -------------------------
-# GIF ENGINE
+# GIF ENGINE (RESTORED)
 # -------------------------
 GIFS = {
-    "add": ["gif1"],
-    "done": ["gif2"],
-    "focus": ["gif3"]
+    "add": [
+        "CgACAgQAAxkBAANxaj0LFl0u4HHc0CpZWroUYFZ8loAAAtUCAAJVlQxTBkmzB2EPQCo8BA"
+    ],
+    "done": [
+        "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"
+    ],
+    "focus": [
+        "CgACAgQAAxkBAANzaj0LQ3LnyEwYQ_aw8-CtZsA07l4AAhwHAAJ2b0VQAAFnz-zlNdQgPAQ"
+    ]
 }
 
 def get_gif(event, task_count):
-    m = mood(task_count)
     pool = GIFS.get(event, [])
     return random.choice(pool) if pool else None
 
@@ -268,7 +269,6 @@ def reply(text):
         body = "\n- ".join(extract_title(t) for t in tasks)
         return jesse("list", task_count) + "\n- " + body, "list"
 
-    # 🧠 NEW SMART FOCUS
     if text == "focus":
         if not tasks:
             return jesse("empty", task_count), "empty"
@@ -276,10 +276,7 @@ def reply(text):
         ranked = rank_tasks(tasks)
         top = ranked[0]
 
-        return (
-            jesse("focus", task_count) + extract_title(top),
-            "focus"
-        )
+        return jesse("focus", task_count) + extract_title(top), "focus"
 
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
