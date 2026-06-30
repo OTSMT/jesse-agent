@@ -50,8 +50,10 @@ def load_memory():
         "last_recap_date": None,
         "chat_id": None,
         "recent_actions": [],
-        "fail_streak": 0,
-        "success_streak": 0,
+
+        # 🧠 NEW LONG-TERM MEMORY
+        "behavior_history": [],
+        "arc_state": "supportive",
     }
 
     if not page:
@@ -171,29 +173,54 @@ def update_streak():
         MEMORY["last_day"] = today
 
 # -------------------------
-# BEHAVIOR SYSTEM
+# BEHAVIOR TRACKING (NEW)
 # -------------------------
 def track_action(action):
     MEMORY["recent_actions"].append(action)
-    if len(MEMORY["recent_actions"]) > 5:
+    if len(MEMORY["recent_actions"]) > 7:
         MEMORY["recent_actions"].pop(0)
 
 
-def analyze_behavior():
-    recent = MEMORY.get("recent_actions", [])
+def update_behavior_history():
+    recent = MEMORY["recent_actions"]
+
     adds = recent.count("add")
     dones = recent.count("done")
 
-    if adds >= 3 and dones == 0:
-        return "overwhelming"
-    if dones > adds and adds > 0:
-        return "productive"
     if adds == 0 and dones == 0:
-        return "idle"
-    return "normal"
+        MEMORY["behavior_history"].append("idle")
+    elif adds > dones:
+        MEMORY["behavior_history"].append("overload")
+    else:
+        MEMORY["behavior_history"].append("productive")
+
+    if len(MEMORY["behavior_history"]) > 20:
+        MEMORY["behavior_history"].pop(0)
+
+
+def determine_arc_state():
+    history = MEMORY["behavior_history"]
+
+    if len(history) < 5:
+        MEMORY["arc_state"] = "supportive"
+        return
+
+    recent = history[-5:]
+    overload = recent.count("overload")
+    idle = recent.count("idle")
+    productive = recent.count("productive")
+
+    if overload >= 3:
+        MEMORY["arc_state"] = "strict"
+    elif productive >= 3:
+        MEMORY["arc_state"] = "locked_in"
+    elif idle >= 3:
+        MEMORY["arc_state"] = "supportive"
+    else:
+        MEMORY["arc_state"] = "supportive"
 
 # -------------------------
-# JESSE CORE PERSONALITY
+# JESSE CORE
 # -------------------------
 JESSE_LINES = {
     "task_added": ["Added it.", "Got it.", "Locked in.", "Say less.", "Bet.", "On it."],
@@ -239,53 +266,59 @@ def mood(task_count):
 def jesse(event, task_count):
     update_streak()
 
-    behavior = analyze_behavior()
+    update_behavior_history()
+    determine_arc_state()
+
+    arc = MEMORY["arc_state"]
     current_mood = mood(task_count)
 
     moods = {
-        "calm": ["Yo. ", "Alright. ", "Aight. ", "Hmm. "],
-        "focused": ["Lock in. ", "Yo. ", "Listen. ", "Alright listen. "],
-        "overloaded": ["Yo... ", "Bro... ", "This is getting heavy. ", "Ayo... "],
-        "empty": ["... ", "Yo. ", "Damn. ", "Nothing going on. "]
+        "calm": ["Yo. ", "Alright. ", "Aight. "],
+        "focused": ["Lock in. ", "Yo. ", "Listen. "],
+        "overloaded": ["Yo... ", "Bro... ", "This is heavy. "],
+        "empty": ["... ", "Yo. ", "Damn. "]
+    }
+
+    arc_lines = {
+        "supportive": ["I got you. ", "We good. "],
+        "strict": ["Focus up. ", "You're slipping. ", "Lock in. "],
+        "locked_in": ["This is clean. ", "You're moving right. ", "Solid execution. "]
     }
 
     behavior_lines = {
-        "overwhelming": ["Slow down a bit. ", "You're stacking too much. ", "You're going a bit wild here. "],
-        "productive": ["We moving clean. ", "This is solid. ", "You're locked in. "],
-        "idle": ["You disappeared. ", "We doing nothing? ", "Where you at? "],
+        "overwhelming": ["Slow down. ", "Too much at once. "],
+        "productive": ["We moving clean. ", "Good momentum. "],
+        "idle": ["Where you at? ", "You disappeared. "],
         "normal": [""]
     }
 
+    event_line = JESSE_LINES.get(event, ["Yo. "])
+
     base = random.choice(moods[current_mood])
-    behavior_layer = random.choice(behavior_lines[behavior])
-    event_line = random.choice(JESSE_LINES.get(event, ["Yo. "]))
+    arc_layer = random.choice(arc_lines[arc])
+    behavior_layer = random.choice(behavior_lines["normal"])
 
     spice = ""
-    if current_mood == "overloaded" and behavior == "overwhelming":
-        spice = random.choice(["Chill.", "Relax.", "Take it easy."])
-    elif current_mood == "empty":
-        spice = random.choice(["You good?", "What's the plan?", "We starting or what?"])
-    elif current_mood == "focused":
-        spice = random.choice(["Keep it going.", "Don't stop.", "Momentum."])
+    if arc == "strict":
+        spice = random.choice(["Get back on track.", "No excuses.", "Fix it."])
+    elif arc == "locked_in":
+        spice = random.choice(["Keep it going.", "Don't slow down.", "Momentum matters."])
 
-    suffix = random.choice(["", " yo.", " let's go.", " keep moving.", " bet."])
+    suffix = random.choice(["", " yo.", " let's go.", " keep moving."])
 
-    return base + behavior_layer + event_line + spice + suffix
+    return base + arc_layer + random.choice(event_line) + spice + suffix
 
 # -------------------------
 # GIF SYSTEM
 # -------------------------
 GIFS = {
-    "task_added": [
-        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
-    ],
+    "task_added": ["CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"],
     "task_done": [
         "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
         "CgACAgQAAxkBAAIEeWo_F9QX-x12U1EejZaXVvwcHPtsAAJKAwACaoAEU0BH5rBCYtisPAQ"
     ],
     "focus": [
-        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ",
-        "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA"
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
     ],
     "default": [
         "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
@@ -294,16 +327,12 @@ GIFS = {
 
 
 def get_gif(event):
-    pool = GIFS.get(event, GIFS["default"])
-    return random.choice(pool) if pool else None
+    return random.choice(GIFS.get(event, GIFS["default"]))
 
 
 async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
     try:
         gif = get_gif(event)
-        if not gif:
-            return
-
         await context.bot.send_animation(
             chat_id=update.effective_chat.id,
             animation=gif
