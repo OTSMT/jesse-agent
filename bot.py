@@ -48,8 +48,6 @@ def load_memory():
         "last_day": None,
         "conversations": 0,
         "recent_actions": [],
-
-        # long-term systems
         "behavior_history": [],
         "arc_state": "supportive",
         "emotion_state": "neutral",
@@ -172,7 +170,7 @@ def update_streak():
         MEMORY["last_day"] = today
 
 # -------------------------
-# BEHAVIOR SYSTEM
+# BEHAVIOR SYSTEM (ARC ENGINE)
 # -------------------------
 def track_action(action):
     MEMORY["recent_actions"].append(action)
@@ -234,27 +232,26 @@ def detect_emotion():
         MEMORY["emotion_state"] = "neutral"
 
 # -------------------------
-# HUMAN INTERACTION LAYER
+# HUMAN LAYER
 # -------------------------
 HUMAN_INPUTS = {
     "greet": ["hi", "hello", "hey", "yo", "sup"],
-    "thanks": ["thanks", "thank you", "thx", "appreciate it"],
-    "bye": ["bye", "goodbye", "see you", "later"]
+    "thanks": ["thanks", "thank you", "thx"],
+    "bye": ["bye", "goodbye", "later"]
 }
 
 HUMAN_RESPONSES = {
     "greet": ["Yo.", "What's up.", "Yeah?", "I'm here."],
     "thanks": ["Yeah.", "No problem.", "We good."],
-    "bye": ["Later.", "Aight.", "We’ll pick this up later."]
+    "bye": ["Later.", "Aight.", "Stay safe."]
 }
+
 
 def handle_human(text):
     t = text.lower().strip()
-
-    for key, words in HUMAN_INPUTS.items():
+    for k, words in HUMAN_INPUTS.items():
         if t in words:
-            return random.choice(HUMAN_RESPONSES[key])
-
+            return random.choice(HUMAN_RESPONSES[k])
     return None
 
 # -------------------------
@@ -337,13 +334,46 @@ def jesse(event, task_count):
     return base + arc_layer + event_line + emotion_layer + suffix
 
 # -------------------------
+# GIF SYSTEM (RESTORED)
+# -------------------------
+GIFS = {
+    "task_added": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ],
+    "task_done": [
+        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
+        "CgACAgQAAxkBAAIEeWo_F9QX-x12U1EejZaXVvwcHPtsAAJKAwACaoAEU0BH5rBCYtisPAQ"
+    ],
+    "focus": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ],
+    "default": [
+        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
+    ]
+}
+
+
+def get_gif(event):
+    return random.choice(GIFS.get(event, GIFS["default"]))
+
+
+async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
+    try:
+        gif = get_gif(event)
+        await context.bot.send_animation(
+            chat_id=update.effective_chat.id,
+            animation=gif
+        )
+    except:
+        pass
+
+# -------------------------
 # CORE LOGIC
 # -------------------------
 def reply(text):
     task_count = len(pending_tasks())
     MEMORY["conversations"] += 1
 
-    # HUMAN FIRST
     human = handle_human(text)
     if human:
         return human, "default"
