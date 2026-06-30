@@ -44,23 +44,20 @@ def load_memory():
     default = {
         "tasks_added": 0,
         "tasks_done": 0,
-        "streak": 0,
-        "last_day": None,
         "conversations": 0,
+
         "recent_actions": [],
         "behavior_history": [],
+
         "arc_state": "supportive",
         "emotion_state": "neutral",
+
         "relationship": 0,
-        "emotion_trend": [],
         "personality_seed": 0,
 
         # Jesse 2.0
         "last_messages": [],
         "last_reply_time": None,
-        "session_count": 0,
-        "last_mood_comment_day": None,
-        "legendary_cooldown": 0,
         "repeat_block": "",
 
         # Jesse 3.0
@@ -70,7 +67,12 @@ def load_memory():
             "done": 0,
             "week_start": str(datetime.date.today()),
         },
-        "task_history_log": [],
+
+        # 🔥 JESSE 3.5 ADDITIONS
+        "task_emotions": {},          # task -> avoid/neutral/liked
+        "task_fail_patterns": {},     # task -> fail count
+        "weekly_history": [],
+        "global_behavior_score": 0,
     }
 
     if not page:
@@ -84,10 +86,7 @@ def load_memory():
             return default
 
         raw = data[0]["plain_text"]
-        try:
-            return {**default, **json.loads(raw)}
-        except:
-            return {**default, **eval(raw)}
+        return {**default, **json.loads(raw)}
 
     except:
         return default
@@ -172,49 +171,33 @@ def mark_done(name):
     return False
 
 # -------------------------
-# JESSE 3.0 TASK MEMORY ENGINE
+# 3.5 TASK INTELLIGENCE
 # -------------------------
-def update_task_memory(action, task_name):
-    mem = MEMORY["task_memory"]
-
-    if task_name not in mem:
-        mem[task_name] = {
-            "created": str(datetime.date.today()),
-            "mentions": 0,
-            "done": False,
-            "last_seen": str(datetime.date.today()),
-        }
-
-    entry = mem[task_name]
-    entry["mentions"] += 1
-    entry["last_seen"] = str(datetime.date.today())
-
-    if action == "done":
-        entry["done"] = True
+def set_task_emotion(task, state):
+    MEMORY["task_emotions"][task] = state
 
 
-def task_age_days(task_name):
-    mem = MEMORY["task_memory"]
-    if task_name not in mem:
-        return 0
-
-    created = datetime.datetime.strptime(mem[task_name]["created"], "%Y-%m-%d").date()
-    return (datetime.date.today() - created).days
+def get_task_emotion(task):
+    return MEMORY["task_emotions"].get(task, "neutral")
 
 
-def procrastination_level(task_name):
-    mem = MEMORY["task_memory"]
-    if task_name not in mem:
-        return 0
+def update_fail_pattern(task, success):
+    if task not in MEMORY["task_fail_patterns"]:
+        MEMORY["task_fail_patterns"][task] = 0
 
-    entry = mem[task_name]
-    if entry["done"]:
-        return 0
+    if not success:
+        MEMORY["task_fail_patterns"][task] += 1
 
-    age = task_age_days(task_name)
-    mentions = entry["mentions"]
 
-    return age + (mentions * 2)
+def failure_level(task):
+    return MEMORY["task_fail_patterns"].get(task, 0)
+
+
+def task_score(task):
+    # higher = more ignored / avoided
+    age = MEMORY["task_memory"].get(task, {}).get("mentions", 0)
+    fails = failure_level(task)
+    return age + (fails * 3)
 
 # -------------------------
 # BEHAVIOR SYSTEM
@@ -241,18 +224,17 @@ def update_behavior_history():
     else:
         MEMORY["behavior_history"].append("productive")
 
-    if len(MEMORY["behavior_history"]) > 20:
+    if len(MEMORY["behavior_history"]) > 25:
         MEMORY["behavior_history"].pop(0)
 
 
-def determine_arc_state():
-    history = MEMORY["behavior_history"]
-
-    if len(history) < 5:
+def arc_state_update():
+    h = MEMORY["behavior_history"]
+    if len(h) < 5:
         MEMORY["arc_state"] = "supportive"
         return
 
-    recent = history[-5:]
+    recent = h[-5:]
     if recent.count("overload") >= 3:
         MEMORY["arc_state"] = "strict"
     elif recent.count("productive") >= 3:
@@ -261,30 +243,25 @@ def determine_arc_state():
         MEMORY["arc_state"] = "supportive"
 
 
-def update_emotion_drift():
-    history = MEMORY["behavior_history"]
-
-    if len(history) < 3:
+def update_emotion():
+    h = MEMORY["behavior_history"]
+    if len(h) < 3:
         return
 
-    recent = history[-10:]
-    stress = recent.count("overload")
-    calm = recent.count("productive")
+    stress = h[-10:].count("overload")
+    calm = h[-10:].count("productive")
 
-    if stress > calm:
-        MEMORY["emotion_state"] = "stressed"
-    elif calm > stress:
-        MEMORY["emotion_state"] = "calm"
-    else:
-        MEMORY["emotion_state"] = "neutral"
+    MEMORY["emotion_state"] = (
+        "stressed" if stress > calm else
+        "calm" if calm > stress else
+        "neutral"
+    )
 
 
-def update_personality():
-    MEMORY["personality_seed"] = (MEMORY["relationship"] + MEMORY["conversations"]) % 100
+def personality():
+    seed = (MEMORY["relationship"] + MEMORY["conversations"]) % 100
+    MEMORY["personality_seed"] = seed
 
-
-def personality_modifier():
-    seed = MEMORY["personality_seed"]
     if seed < 20:
         return "cold"
     elif seed < 50:
@@ -294,106 +271,18 @@ def personality_modifier():
     return "chaotic"
 
 # -------------------------
-# JESSE MEMORY ENGINE (2.0)
-# -------------------------
-def now_ts():
-    return datetime.datetime.now().timestamp()
-
-
-def track_session():
-    now = now_ts()
-    last = MEMORY.get("last_reply_time")
-
-    MEMORY["session_count"] += 1
-    MEMORY["last_reply_time"] = now
-
-    if last:
-        diff = now - last
-        if diff < 60:
-            return "instant"
-        elif diff < 600:
-            return "recent"
-    return "fresh"
-
-
-def anti_repeat_check(text):
-    if text == MEMORY.get("repeat_block"):
-        return True
-    MEMORY["repeat_block"] = text
-    return False
-
-
-def record_message(text):
-    MEMORY["last_messages"].append(text)
-    if len(MEMORY["last_messages"]) > 8:
-        MEMORY["last_messages"].pop(0)
-
-
-def detect_behavior_patterns():
-    msgs = MEMORY["last_messages"]
-    if len(msgs) < 5:
-        return "neutral"
-
-    adds = sum(1 for m in msgs if m.startswith("add"))
-    done = sum(1 for m in msgs if m.startswith("done"))
-    focus = sum(1 for m in msgs if m == "focus")
-
-    if adds >= 4 and done == 0:
-        return "overload"
-    if done >= 3:
-        return "productive_spike"
-    if focus >= 2:
-        return "focused"
-
-    return "neutral"
-
-
-def maybe_legendary():
-    if MEMORY["legendary_cooldown"] > 0:
-        MEMORY["legendary_cooldown"] -= 1
-        return None
-
-    if random.random() < 0.015:
-        MEMORY["legendary_cooldown"] = 15
-        return random.choice([
-            "quiet_serious",
-            "unexpected_proud",
-            "sudden_cold",
-            "rare_support"
-        ])
-    return None
-
-
-def daily_mood_check():
-    today = str(datetime.date.today())
-
-    if MEMORY.get("last_mood_comment_day") == today:
-        return None
-
-    MEMORY["last_mood_comment_day"] = today
-
-    if random.random() < 0.25:
-        return random.choice([
-            "Drink water.",
-            "Stretch for a second.",
-            "Don’t burn out.",
-            "You’re moving today."
-        ])
-    return None
-
-# -------------------------
 # HUMAN LAYER
 # -------------------------
 def handle_human(text):
     t = text.lower().strip()
-    personality = personality_modifier()
+    p = personality()
 
-    if t in ["hi", "hello", "hey", "yo"]:
+    if t in ["hi", "hello", "yo", "hey"]:
         return random.choice({
             "cold": ["Yeah.", "What.", "Yo."],
             "warm": ["Yo man.", "Hey.", "Yeah what's up."],
             "chaotic": ["Yo… again?", "What now.", "Yeah yeah I’m here."]
-        }.get(personality, ["Yo.", "Yeah?", "What."]))
+        }.get(p, ["Yo.", "Yeah?", "What."]))
 
     if t in ["thanks", "thank you"]:
         return random.choice(["Yeah.", "No problem.", "We good."])
@@ -404,23 +293,18 @@ def handle_human(text):
     return None
 
 # -------------------------
-# SPEECH ENGINE
+# SPEECH ENGINE (3.5)
 # -------------------------
-def messify(base, arc, emotion, relationship):
+def messify(base, arc, emotion, rel):
 
-    personality = personality_modifier()
-    legendary = maybe_legendary()
-    session_type = track_session()
-    pattern = detect_behavior_patterns()
+    p = personality()
 
-    prefixes = {
+    text = random.choice({
         "cold": ["Yo", "Aight", ""],
         "neutral": ["Yo", "Yo…", "Alright"],
         "warm": ["Yo man", "Aight bro", "Yo"],
         "chaotic": ["Yo…", "Bro", "Yo yo", ""]
-    }
-
-    text = random.choice(prefixes[personality]) + " " + base
+    }[p]) + " " + base
 
     if arc == "strict":
         text += " Focus."
@@ -429,98 +313,47 @@ def messify(base, arc, emotion, relationship):
 
     if emotion == "stressed":
         text += " Slow down."
-    elif emotion == "calm":
-        if random.random() < 0.2:
-            text += " That's fine."
 
-    if relationship == "old_friend" and random.random() < 0.25:
-        text = "You again. " + text
+    # LONG TERM VOICE DRIFT
+    if rel > 60 and random.random() < 0.2:
+        text = "I’ve seen this pattern before. " + text
 
-    if session_type == "instant":
-        text = random.choice(["Again?", "Bro.", "Yeah I’m here."]) + " " + text
-
-    if pattern == "overload":
-        text += " You’re stacking too much."
-    elif pattern == "productive_spike":
-        text += " Okay I see you."
-    elif pattern == "focused":
-        text += " Don’t lose it."
-
-    if legendary == "quiet_serious":
-        text = "…You’re moving different lately."
-    elif legendary == "unexpected_proud":
-        text = "Not bad. Keep that up."
-    elif legendary == "sudden_cold":
-        text = "Do it or don’t. Just stop hesitating."
-    elif legendary == "rare_support":
-        text = "I got you. Just keep going."
-
-    text += random.choice(["", ".", "...", " yeah.", " man."])
+    if p == "chaotic":
+        text += random.choice([" not gonna lie.", " idk.", " whatever."])
 
     return text.strip()
 
 # -------------------------
-# GIF SYSTEM
-# -------------------------
-GIFS = {
-    "task_added": ["CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"],
-    "task_done": [
-        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
-        "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA"
-    ],
-    "default": [
-        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
-        "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"
-    ]
-}
-
-
-def get_gif(event):
-    return random.choice(GIFS.get(event, GIFS["default"]))
-
-
-async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
-    try:
-        gif = get_gif(event)
-        await context.bot.send_animation(
-            chat_id=update.effective_chat.id,
-            animation=gif
-        )
-    except:
-        pass
-
-# -------------------------
-# CORE REPLY (JESSE 3.0)
+# CORE REPLY
 # -------------------------
 def reply(text):
 
     MEMORY["conversations"] += 1
-    record_message(text)
+    track_action("other")
 
-    action = "other"
     if text.startswith("add"):
-        action = "add"
-    elif text.startswith("done"):
-        action = "done"
+        task = text.replace("add", "", 1).strip()
+        save_task(task)
 
-    track_action(action)
+        MEMORY["tasks_added"] += 1
+        track_action("add")
 
-    if anti_repeat_check(text):
-        return "Yeah.", "default"
+        set_task_emotion(task, "neutral")
+        return "Got it.", "task_added"
 
-    human = handle_human(text)
-    if human:
-        mood = daily_mood_check()
-        if mood:
-            return human + " " + mood, "default"
-        return human, "default"
+    if text.startswith("done"):
+        task = text.replace("done", "", 1).strip()
+        ok = mark_done(task)
 
-    if text == "list":
-        tasks = pending_tasks()
-        if not tasks:
-            return "Nothing left.", "default"
-        body = "\n- ".join(extract_title(t) for t in tasks)
-        return "Here’s the board:\n- " + body, "default"
+        track_action("done")
+
+        if ok:
+            MEMORY["tasks_done"] += 1
+            update_fail_pattern(task, True)
+            return "Done.", "task_done"
+
+        update_fail_pattern(task, False)
+        return "Not found.", "default"
 
     if text == "focus":
         tasks = pending_tasks()
@@ -528,33 +361,20 @@ def reply(text):
             return "Nothing left.", "default"
 
         t = extract_title(tasks[0])
-        level = procrastination_level(t)
+        score = task_score(t)
 
-        if level > 10:
-            return f"You’ve been avoiding this → {t}", "focus"
-        elif level > 5:
+        if score > 12:
+            return f"You’ve been avoiding this for a while → {t}", "focus"
+        elif score > 6:
             return f"This again… → {t}", "focus"
+
         return "Do this → " + t, "focus"
 
-    if text.startswith("add"):
-        task = text.replace("add", "", 1).strip()
-        save_task(task)
-        MEMORY["tasks_added"] += 1
-        update_task_memory("add", task)
-        MEMORY["weekly_stats"]["adds"] += 1
-        return "Got it.", "task_added"
-
-    if text.startswith("done"):
-        task = text.replace("done", "", 1).strip()
-        ok = mark_done(task)
-
-        if ok:
-            MEMORY["tasks_done"] += 1
-            update_task_memory("done", task)
-            MEMORY["weekly_stats"]["done"] += 1
-            return "Done.", "task_done"
-
-        return "Not found.", "default"
+    if text == "list":
+        tasks = pending_tasks()
+        if not tasks:
+            return "Nothing left.", "default"
+        return "Here’s the board:\n- " + "\n- ".join(extract_title(t) for t in tasks), "default"
 
     return "Yo.", "default"
 
@@ -567,14 +387,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         update_relationship()
         update_behavior_history()
-        determine_arc_state()
-        update_personality()
-        update_emotion_drift()
+        arc_state_update()
+        update_emotion()
 
-        response, event = reply(text)
+        base, event = reply(text)
 
         final = messify(
-            response,
+            base,
             MEMORY["arc_state"],
             MEMORY["emotion_state"],
             MEMORY["relationship"]
@@ -583,7 +402,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_memory(MEMORY)
 
         await update.message.reply_text(final)
-        await send_gif(update, context, event)
 
     except Exception as e:
         print("ERROR:", e)
