@@ -47,13 +47,12 @@ def load_memory():
         "streak": 0,
         "last_day": None,
         "conversations": 0,
-        "last_recap_date": None,
-        "chat_id": None,
         "recent_actions": [],
 
-        # 🧠 NEW LONG-TERM MEMORY
+        # long-term systems
         "behavior_history": [],
         "arc_state": "supportive",
+        "emotion_state": "neutral",
     }
 
     if not page:
@@ -173,7 +172,7 @@ def update_streak():
         MEMORY["last_day"] = today
 
 # -------------------------
-# BEHAVIOR TRACKING (NEW)
+# BEHAVIOR SYSTEM
 # -------------------------
 def track_action(action):
     MEMORY["recent_actions"].append(action)
@@ -214,49 +213,83 @@ def determine_arc_state():
         MEMORY["arc_state"] = "strict"
     elif productive >= 3:
         MEMORY["arc_state"] = "locked_in"
-    elif idle >= 3:
-        MEMORY["arc_state"] = "supportive"
     else:
         MEMORY["arc_state"] = "supportive"
+
+
+def detect_emotion():
+    recent = MEMORY["recent_actions"]
+    tasks = len(pending_tasks())
+
+    adds = recent.count("add")
+    dones = recent.count("done")
+
+    if tasks == 0:
+        MEMORY["emotion_state"] = "relieved"
+    elif adds > dones + 2:
+        MEMORY["emotion_state"] = "stressed"
+    elif dones > adds:
+        MEMORY["emotion_state"] = "proud"
+    else:
+        MEMORY["emotion_state"] = "neutral"
+
+# -------------------------
+# HUMAN INTERACTION LAYER
+# -------------------------
+HUMAN_INPUTS = {
+    "greet": ["hi", "hello", "hey", "yo", "sup"],
+    "thanks": ["thanks", "thank you", "thx", "appreciate it"],
+    "bye": ["bye", "goodbye", "see you", "later"]
+}
+
+HUMAN_RESPONSES = {
+    "greet": ["Yo.", "What's up.", "Yeah?", "I'm here."],
+    "thanks": ["Yeah.", "No problem.", "We good."],
+    "bye": ["Later.", "Aight.", "We’ll pick this up later."]
+}
+
+def handle_human(text):
+    t = text.lower().strip()
+
+    for key, words in HUMAN_INPUTS.items():
+        if t in words:
+            return random.choice(HUMAN_RESPONSES[key])
+
+    return None
 
 # -------------------------
 # JESSE CORE
 # -------------------------
 JESSE_LINES = {
-    "task_added": ["Added it.", "Got it.", "Locked in.", "Say less.", "Bet.", "On it."],
-    "task_done": ["Yeah, bitch!", "Done.", "Nice.", "Off the board.", "Clean.", "We cookin'."],
-    "not_found": ["Yo… not here.", "That’s not in the list.", "You sure?", "Nah, not found."],
-    "list": ["Here’s the board:", "Current missions:", "Alright, here’s everything:"],
-    "empty": ["Nothing left.", "Board’s clean.", "We’re done here."],
-    "focus": ["Do this → ", "Focus → ", "Only this → "]
+    "task_added": ["Added it.", "Got it.", "Locked in.", "Say less."],
+    "task_done": ["Yeah, bitch!", "Done.", "Clean."],
+    "not_found": ["Not here.", "Check again."],
+    "list": ["Here’s the board:"],
+    "empty": ["Nothing left."],
+    "focus": ["Do this → "]
 }
 
 
 def mood(task_count):
-    recent = MEMORY.get("recent_actions", [])
-    convo = MEMORY.get("conversations", 0)
+    recent = MEMORY["recent_actions"]
+    convo = MEMORY["conversations"]
 
     adds = recent.count("add")
     dones = recent.count("done")
 
-    if task_count == 0:
-        base = "empty"
-    elif task_count <= 2:
-        base = "calm"
-    elif task_count <= 5:
-        base = "focused"
-    else:
-        base = "overloaded"
+    base = (
+        "empty" if task_count == 0 else
+        "calm" if task_count <= 2 else
+        "focused" if task_count <= 5 else
+        "overloaded"
+    )
 
     if adds >= 3 and dones == 0:
         base = "overloaded"
-
-    if dones > adds and task_count > 0:
+    if dones > adds:
         base = "focused"
-
-    if convo % 6 == 0 and convo > 0:
+    if convo % 6 == 0:
         base = random.choice(["calm", "focused", "overloaded", "empty"])
-
     if random.random() < 0.12:
         base = random.choice(["calm", "focused", "overloaded"])
 
@@ -265,80 +298,43 @@ def mood(task_count):
 
 def jesse(event, task_count):
     update_streak()
-
     update_behavior_history()
     determine_arc_state()
+    detect_emotion()
 
     arc = MEMORY["arc_state"]
+    emotion = MEMORY["emotion_state"]
     current_mood = mood(task_count)
 
     moods = {
-        "calm": ["Yo. ", "Alright. ", "Aight. "],
-        "focused": ["Lock in. ", "Yo. ", "Listen. "],
-        "overloaded": ["Yo... ", "Bro... ", "This is heavy. "],
-        "empty": ["... ", "Yo. ", "Damn. "]
+        "calm": ["Yo. ", "Alright. "],
+        "focused": ["Lock in. ", "Yo. "],
+        "overloaded": ["Yo... ", "Bro... "],
+        "empty": ["... ", "Yo. "]
     }
 
     arc_lines = {
-        "supportive": ["I got you. ", "We good. "],
-        "strict": ["Focus up. ", "You're slipping. ", "Lock in. "],
-        "locked_in": ["This is clean. ", "You're moving right. ", "Solid execution. "]
+        "supportive": ["I got you. "],
+        "strict": ["Focus up. ", "You're slipping. "],
+        "locked_in": ["This is clean. "]
     }
 
-    behavior_lines = {
-        "overwhelming": ["Slow down. ", "Too much at once. "],
-        "productive": ["We moving clean. ", "Good momentum. "],
-        "idle": ["Where you at? ", "You disappeared. "],
-        "normal": [""]
+    emotion_lines = {
+        "stressed": "Slow down.",
+        "proud": "Good work.",
+        "relieved": "Finally.",
+        "neutral": ""
     }
-
-    event_line = JESSE_LINES.get(event, ["Yo. "])
 
     base = random.choice(moods[current_mood])
     arc_layer = random.choice(arc_lines[arc])
-    behavior_layer = random.choice(behavior_lines["normal"])
+    emotion_layer = emotion_lines.get(emotion, "")
 
-    spice = ""
-    if arc == "strict":
-        spice = random.choice(["Get back on track.", "No excuses.", "Fix it."])
-    elif arc == "locked_in":
-        spice = random.choice(["Keep it going.", "Don't slow down.", "Momentum matters."])
+    event_line = random.choice(JESSE_LINES.get(event, ["Yo. "]))
 
     suffix = random.choice(["", " yo.", " let's go.", " keep moving."])
 
-    return base + arc_layer + random.choice(event_line) + spice + suffix
-
-# -------------------------
-# GIF SYSTEM
-# -------------------------
-GIFS = {
-    "task_added": ["CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"],
-    "task_done": [
-        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
-        "CgACAgQAAxkBAAIEeWo_F9QX-x12U1EejZaXVvwcHPtsAAJKAwACaoAEU0BH5rBCYtisPAQ"
-    ],
-    "focus": [
-        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
-    ],
-    "default": [
-        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
-    ]
-}
-
-
-def get_gif(event):
-    return random.choice(GIFS.get(event, GIFS["default"]))
-
-
-async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
-    try:
-        gif = get_gif(event)
-        await context.bot.send_animation(
-            chat_id=update.effective_chat.id,
-            animation=gif
-        )
-    except:
-        pass
+    return base + arc_layer + event_line + emotion_layer + suffix
 
 # -------------------------
 # CORE LOGIC
@@ -347,11 +343,15 @@ def reply(text):
     task_count = len(pending_tasks())
     MEMORY["conversations"] += 1
 
+    # HUMAN FIRST
+    human = handle_human(text)
+    if human:
+        return human, "default"
+
     if text == "list":
         tasks = pending_tasks()
         if not tasks:
             return "Nothing left.", "empty"
-
         body = "\n- ".join(extract_title(t) for t in tasks)
         return random.choice(JESSE_LINES["list"]) + "\n- " + body, "list"
 
@@ -359,7 +359,6 @@ def reply(text):
         tasks = pending_tasks()
         if not tasks:
             return "Nothing left.", "empty"
-
         return random.choice(JESSE_LINES["focus"]) + extract_title(tasks[0]), "focus"
 
     if text.startswith("add"):
@@ -380,7 +379,7 @@ def reply(text):
 
         return random.choice(JESSE_LINES["not_found"]), "default"
 
-    return "Noted.", "default"
+    return "Hmm.", "default"
 
 # -------------------------
 # HANDLER
@@ -394,7 +393,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_memory(MEMORY)
 
         await update.message.reply_text(response)
-        await send_gif(update, context, event)
 
     except Exception as e:
         print("ERROR:", e)
