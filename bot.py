@@ -62,12 +62,14 @@ def load_memory():
         },
 
         "weekly_history": [],
+        "daily_history": [],
+
         "task_fail_patterns": {},
 
-        # 4.5 ADDITIONS
-        "behavior_identity": "unknown",
-        "burnout_score": 0,
-        "trend_delta": 0,
+        # 5.0 CORE ADDITIONS
+        "identity_trend": [],
+        "daily_state": "neutral",
+        "prediction_memory": {},
     }
 
     if not page:
@@ -76,6 +78,7 @@ def load_memory():
     try:
         props = page.get("properties", {})
         data = props.get("Data", {}).get("rich_text", [])
+
         if not data:
             return default
 
@@ -159,68 +162,71 @@ def mark_done(name):
     return False
 
 # -------------------------
-# WEEK SYSTEM
+# DAILY SYSTEM (5.0 CORE)
 # -------------------------
-def check_week_reset():
-    today = datetime.date.today()
-    start = datetime.datetime.strptime(MEMORY["weekly_stats"]["week_start"], "%Y-%m-%d").date()
+def update_daily_state():
+    today = str(datetime.date.today())
 
-    if (today - start).days >= 7:
-        MEMORY["weekly_history"].append(dict(MEMORY["weekly_stats"]))
-        MEMORY["weekly_stats"] = {
-            "adds": 0,
-            "done": 0,
-            "week_start": str(today),
-        }
+    if MEMORY.get("last_day") != today:
+        if MEMORY.get("last_day"):
+            MEMORY["daily_history"].append(MEMORY.get("daily_state", "neutral"))
+
+        MEMORY["last_day"] = today
+        MEMORY["daily_state"] = "neutral"
+
+    h = MEMORY["behavior_history"][-10:]
+
+    adds = h.count("overload")
+    done = h.count("productive")
+
+    if adds > done:
+        MEMORY["daily_state"] = "overload"
+    elif done > adds:
+        MEMORY["daily_state"] = "productive"
+    else:
+        MEMORY["daily_state"] = "neutral"
 
 # -------------------------
-# BEHAVIOR IDENTITY ENGINE (4.5 CORE)
+# IDENTITY ENGINE (5.0)
 # -------------------------
 def compute_identity():
-    h = MEMORY["weekly_history"]
-    adds = MEMORY["weekly_stats"]["adds"]
-    done = MEMORY["weekly_stats"]["done"]
+    w = MEMORY["weekly_stats"]
+    ratio = w["done"] / (w["adds"] + 1)
 
-    ratio = done / (adds + 1)
-
-    if ratio > 0.8 and adds > 10:
-        identity = "consistent_grinder"
-    elif adds > 15 and done < 5:
+    if ratio > 0.8:
+        identity = "grinder"
+    elif w["adds"] > 15 and w["done"] < 5:
         identity = "procrastinator"
-    elif len(h) >= 2 and h[-1]["adds"] > h[-1]["done"]:
-        identity = "unstable_cycle"
-    elif done > adds:
-        identity = "spike_worker"
+    elif len(MEMORY["weekly_history"]) > 2 and MEMORY["weekly_history"][-1]["adds"] > MEMORY["weekly_history"][-1]["done"]:
+        identity = "unstable"
     else:
         identity = "planner"
 
-    MEMORY["behavior_identity"] = identity
+    MEMORY["identity"] = identity
+    MEMORY["identity_trend"].append(identity)
+
+    if len(MEMORY["identity_trend"]) > 20:
+        MEMORY["identity_trend"].pop(0)
+
+# -------------------------
+# PREDICTION ENGINE (LIGHTWEIGHT)
+# -------------------------
+def predict_task(task):
+    fails = MEMORY["task_fail_patterns"].get(task, 0)
+    base = 0.5
+
+    if fails > 3:
+        base -= 0.3
+    if MEMORY["identity"] == "procrastinator":
+        base -= 0.2
+    if MEMORY["daily_state"] == "overload":
+        base -= 0.1
+
+    return max(0.05, min(0.95, base))
 
 
-def burnout_score():
-    h = MEMORY["weekly_history"]
-    if len(h) < 2:
-        return 0
-
-    recent = h[-1]
-    prev = h[-2]
-
-    drop = prev["done"] - recent["done"]
-    overload = recent["adds"] - recent["done"]
-
-    score = max(0, drop) + max(0, overload)
-    MEMORY["burnout_score"] = score
-    return score
-
-
-def trend_analysis():
-    h = MEMORY["weekly_history"]
-    if len(h) < 2:
-        return 0
-
-    diff = h[-1]["done"] - h[-2]["done"]
-    MEMORY["trend_delta"] = diff
-    return diff
+def failure_score(task):
+    return MEMORY["task_fail_patterns"].get(task, 0)
 
 # -------------------------
 # BEHAVIOR SYSTEM
@@ -312,13 +318,12 @@ def handle_human(text):
     return None
 
 # -------------------------
-# SPEECH ENGINE (4.5 ADAPTIVE)
+# SPEECH ENGINE
 # -------------------------
 def messify(base, arc, emotion, rel):
 
     p = personality()
-    burnout = MEMORY.get("burnout_score", 0)
-    identity = MEMORY.get("behavior_identity", "unknown")
+    identity = MEMORY.get("identity", "planner")
 
     text = random.choice({
         "cold": ["Yo", "Aight", ""],
@@ -327,25 +332,16 @@ def messify(base, arc, emotion, rel):
         "chaotic": ["Yo…", "Bro", "Yo yo", ""]
     }[p]) + " " + base
 
-    # ARC
     if arc == "strict":
         text += " Focus."
     elif arc == "locked_in":
         text += " Keep going."
 
-    # BURNOUT MODE (REAL TALK)
-    if burnout > 5:
-        text = "You’re slipping. " + text
-    if burnout > 10:
-        text = "This is getting messy. " + text
-
-    # IDENTITY LAYER
     if identity == "procrastinator":
-        text += " You’re delaying too much."
-    elif identity == "consistent_grinder":
+        text += " You’re stalling again."
+    elif identity == "grinder":
         text += " You’re steady."
 
-    # RELATIONSHIP MEMORY
     if rel > 60 and random.random() < 0.2:
         text = "Still here? " + text
 
@@ -358,13 +354,11 @@ def reply(text):
 
     MEMORY["conversations"] += 1
 
-    check_week_reset()
+    update_daily_state()
 
     if text == "week":
-        return (
-            f"Week report:\nAdds: {MEMORY['weekly_stats']['adds']}\nDone: {MEMORY['weekly_stats']['done']}\nIdentity: {MEMORY['behavior_identity']}",
-            "default"
-        )
+        w = MEMORY["weekly_stats"]
+        return f"Week:\nAdds: {w['adds']}\nDone: {w['done']}\nIdentity: {MEMORY.get('identity','?')}", "default"
 
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
@@ -390,7 +384,14 @@ def reply(text):
         tasks = pending_tasks()
         if not tasks:
             return "Nothing left.", "default"
-        return "Do this → " + extract_title(tasks[0]), "default"
+
+        t = extract_title(tasks[0])
+        p = predict_task(t)
+
+        if p < 0.3:
+            return f"You’ll probably avoid this → {t}", "default"
+
+        return "Do this → " + t, "default"
 
     if text == "list":
         tasks = pending_tasks()
@@ -406,8 +407,7 @@ def reply(text):
 GIFS = {
     "task_added": ["CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"],
     "task_done": [
-        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
-        "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA"
+        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA"
     ],
     "default": [
         "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
@@ -440,10 +440,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_behavior_history()
         arc_state_update()
         update_emotion()
-
         compute_identity()
-        burnout_score()
-        trend_analysis()
 
         base, event = reply(text)
 
