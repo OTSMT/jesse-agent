@@ -62,14 +62,14 @@ def load_memory():
         },
 
         "weekly_history": [],
-        "daily_history": [],
+        "identity": "planner",
 
-        "task_fail_patterns": {},
-
-        # 5.0 CORE ADDITIONS
-        "identity_trend": [],
-        "daily_state": "neutral",
-        "prediction_memory": {},
+        # 6.0 CORE
+        "task_categories": {},
+        "avoidance_index": 0,
+        "consistency_score": 0,
+        "execution_speed": 0,
+        "honesty_mode": False,
     }
 
     if not page:
@@ -78,7 +78,6 @@ def load_memory():
     try:
         props = page.get("properties", {})
         data = props.get("Data", {}).get("rich_text", [])
-
         if not data:
             return default
 
@@ -162,71 +161,36 @@ def mark_done(name):
     return False
 
 # -------------------------
-# DAILY SYSTEM (5.0 CORE)
+# CATEGORY ENGINE (6.0 CORE)
 # -------------------------
-def update_daily_state():
-    today = str(datetime.date.today())
-
-    if MEMORY.get("last_day") != today:
-        if MEMORY.get("last_day"):
-            MEMORY["daily_history"].append(MEMORY.get("daily_state", "neutral"))
-
-        MEMORY["last_day"] = today
-        MEMORY["daily_state"] = "neutral"
-
-    h = MEMORY["behavior_history"][-10:]
-
-    adds = h.count("overload")
-    done = h.count("productive")
-
-    if adds > done:
-        MEMORY["daily_state"] = "overload"
-    elif done > adds:
-        MEMORY["daily_state"] = "productive"
-    else:
-        MEMORY["daily_state"] = "neutral"
-
-# -------------------------
-# IDENTITY ENGINE (5.0)
-# -------------------------
-def compute_identity():
-    w = MEMORY["weekly_stats"]
-    ratio = w["done"] / (w["adds"] + 1)
-
-    if ratio > 0.8:
-        identity = "grinder"
-    elif w["adds"] > 15 and w["done"] < 5:
-        identity = "procrastinator"
-    elif len(MEMORY["weekly_history"]) > 2 and MEMORY["weekly_history"][-1]["adds"] > MEMORY["weekly_history"][-1]["done"]:
-        identity = "unstable"
-    else:
-        identity = "planner"
-
-    MEMORY["identity"] = identity
-    MEMORY["identity_trend"].append(identity)
-
-    if len(MEMORY["identity_trend"]) > 20:
-        MEMORY["identity_trend"].pop(0)
-
-# -------------------------
-# PREDICTION ENGINE (LIGHTWEIGHT)
-# -------------------------
-def predict_task(task):
-    fails = MEMORY["task_fail_patterns"].get(task, 0)
-    base = 0.5
-
-    if fails > 3:
-        base -= 0.3
-    if MEMORY["identity"] == "procrastinator":
-        base -= 0.2
-    if MEMORY["daily_state"] == "overload":
-        base -= 0.1
-
-    return max(0.05, min(0.95, base))
+def detect_category(text):
+    t = text.lower()
+    if any(x in t for x in ["email", "form", "invoice", "call"]):
+        return "admin"
+    if any(x in t for x in ["study", "learn", "read", "course"]):
+        return "learning"
+    if any(x in t for x in ["work", "project", "report"]):
+        return "work"
+    if any(x in t for x in ["gym", "health", "run", "sleep"]):
+        return "personal"
+    return "unknown"
 
 
-def failure_score(task):
-    return MEMORY["task_fail_patterns"].get(task, 0)
+def update_category(task, success):
+    cat = detect_category(task)
+
+    if cat not in MEMORY["task_categories"]:
+        MEMORY["task_categories"][cat] = {"attempts": 0, "fails": 0}
+
+    MEMORY["task_categories"][cat]["attempts"] += 1
+    if not success:
+        MEMORY["task_categories"][cat]["fails"] += 1
+
+
+def category_avoidance_score():
+    total_fails = sum(v["fails"] for v in MEMORY["task_categories"].values())
+    total_attempts = sum(v["attempts"] for v in MEMORY["task_categories"].values())
+    return total_fails / (total_attempts + 1)
 
 # -------------------------
 # BEHAVIOR SYSTEM
@@ -282,10 +246,24 @@ def update_emotion():
         "calm" if calm > stress else "neutral"
     )
 
+# -------------------------
+# METRICS ENGINE (6.0 CORE)
+# -------------------------
+def compute_metrics():
+    adds = MEMORY["weekly_stats"]["adds"]
+    done = MEMORY["weekly_stats"]["done"]
 
+    MEMORY["consistency_score"] = done / (adds + 1)
+    MEMORY["avoidance_index"] = category_avoidance_score()
+    MEMORY["execution_speed"] = done - adds * 0.2
+
+    MEMORY["honesty_mode"] = MEMORY["avoidance_index"] > 0.6
+
+# -------------------------
+# PERSONALITY
+# -------------------------
 def personality():
     seed = (MEMORY["relationship"] + MEMORY["conversations"]) % 100
-    MEMORY["personality_seed"] = seed
 
     if seed < 20:
         return "cold"
@@ -300,14 +278,9 @@ def personality():
 # -------------------------
 def handle_human(text):
     t = text.lower().strip()
-    p = personality()
 
     if t in ["hi", "hello", "yo", "hey"]:
-        return random.choice({
-            "cold": ["Yeah.", "What.", "Yo."],
-            "warm": ["Yo man.", "Hey.", "Yeah what's up."],
-            "chaotic": ["Yo… again?", "What now.", "Yeah yeah I’m here."]
-        }.get(p, ["Yo.", "Yeah?", "What."]))
+        return random.choice(["Yo.", "Yeah.", "What."])
 
     if t in ["thanks", "thank you"]:
         return "Yeah."
@@ -318,12 +291,12 @@ def handle_human(text):
     return None
 
 # -------------------------
-# SPEECH ENGINE
+# SPEECH ENGINE (6.0)
 # -------------------------
 def messify(base, arc, emotion, rel):
 
     p = personality()
-    identity = MEMORY.get("identity", "planner")
+    avoidance = MEMORY.get("avoidance_index", 0)
 
     text = random.choice({
         "cold": ["Yo", "Aight", ""],
@@ -332,15 +305,18 @@ def messify(base, arc, emotion, rel):
         "chaotic": ["Yo…", "Bro", "Yo yo", ""]
     }[p]) + " " + base
 
+    # ARC
     if arc == "strict":
         text += " Focus."
     elif arc == "locked_in":
         text += " Keep going."
 
-    if identity == "procrastinator":
-        text += " You’re stalling again."
-    elif identity == "grinder":
-        text += " You’re steady."
+    # HONEST MODE
+    if MEMORY.get("honesty_mode"):
+        text = "You keep avoiding the same patterns. " + text
+
+    if avoidance > 0.7:
+        text += " This is becoming a pattern."
 
     if rel > 60 and random.random() < 0.2:
         text = "Still here? " + text
@@ -354,30 +330,35 @@ def reply(text):
 
     MEMORY["conversations"] += 1
 
-    update_daily_state()
-
     if text == "week":
         w = MEMORY["weekly_stats"]
-        return f"Week:\nAdds: {w['adds']}\nDone: {w['done']}\nIdentity: {MEMORY.get('identity','?')}", "default"
+        return f"Week:\nAdds: {w['adds']}\nDone: {w['done']}\nAvoidance: {MEMORY.get('avoidance_index',0):.2f}", "default"
 
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
         save_task(task)
+
         MEMORY["tasks_added"] += 1
         MEMORY["weekly_stats"]["adds"] += 1
+
+        update_category(task, True)
         track_action("add")
+
         return "Got it.", "task_added"
 
     if text.startswith("done"):
         task = text.replace("done", "", 1).strip()
         ok = mark_done(task)
+
         track_action("done")
 
         if ok:
             MEMORY["tasks_done"] += 1
             MEMORY["weekly_stats"]["done"] += 1
+            update_category(task, True)
             return "Done.", "task_done"
 
+        update_category(task, False)
         return "Not found.", "default"
 
     if text == "focus":
@@ -386,10 +367,9 @@ def reply(text):
             return "Nothing left.", "default"
 
         t = extract_title(tasks[0])
-        p = predict_task(t)
 
-        if p < 0.3:
-            return f"You’ll probably avoid this → {t}", "default"
+        if MEMORY.get("avoidance_index", 0) > 0.6:
+            return f"You keep avoiding similar tasks → {t}", "default"
 
         return "Do this → " + t, "default"
 
@@ -397,6 +377,7 @@ def reply(text):
         tasks = pending_tasks()
         if not tasks:
             return "Nothing left.", "default"
+
         return "Here’s the board:\n- " + "\n- ".join(extract_title(t) for t in tasks), "default"
 
     return "Yo.", "default"
@@ -406,12 +387,8 @@ def reply(text):
 # -------------------------
 GIFS = {
     "task_added": ["CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"],
-    "task_done": [
-        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA"
-    ],
-    "default": [
-        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
-    ]
+    "task_done": ["CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA"],
+    "default": ["CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"]
 }
 
 
@@ -440,7 +417,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_behavior_history()
         arc_state_update()
         update_emotion()
-        compute_identity()
+        compute_metrics()
 
         base, event = reply(text)
 
