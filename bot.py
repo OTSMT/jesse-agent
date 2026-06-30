@@ -170,7 +170,7 @@ def update_streak():
         MEMORY["last_day"] = today
 
 # -------------------------
-# BEHAVIOR SYSTEM (ARC ENGINE)
+# BEHAVIOR SYSTEM
 # -------------------------
 def track_action(action):
     MEMORY["recent_actions"].append(action)
@@ -334,7 +334,7 @@ def jesse(event, task_count):
     return base + arc_layer + event_line + emotion_layer + suffix
 
 # -------------------------
-# GIF SYSTEM (RESTORED)
+# GIF SYSTEM (FIXED)
 # -------------------------
 GIFS = {
     "task_added": [
@@ -364,8 +364,8 @@ async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: st
             chat_id=update.effective_chat.id,
             animation=gif
         )
-    except:
-        pass
+    except Exception as e:
+        print("GIF ERROR:", e)
 
 # -------------------------
 # CORE LOGIC
@@ -412,7 +412,7 @@ def reply(text):
     return "Hmm.", "default"
 
 # -------------------------
-# HANDLER
+# HANDLER (FIXED)
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -423,6 +423,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_memory(MEMORY)
 
         await update.message.reply_text(response)
+        await send_gif(update, context, event)
 
     except Exception as e:
         print("ERROR:", e)
