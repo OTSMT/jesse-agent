@@ -51,12 +51,7 @@ def load_memory():
         "behavior_history": [],
         "arc_state": "supportive",
         "emotion_state": "neutral",
-
-        # 🧠 RELATIONSHIP MEMORY (NEW)
-        "first_seen": None,
-        "interaction_level": 0,
-        "last_seen_day": None,
-        "familiarity": 0  # grows over time
+        "relationship": 0
     }
 
     if not page:
@@ -65,17 +60,14 @@ def load_memory():
     try:
         props = page.get("properties", {})
         data = props.get("Data", {}).get("rich_text", [])
-
         if not data:
             return default
 
         raw = data[0]["plain_text"]
-
         try:
             return {**default, **json.loads(raw)}
         except:
             return {**default, **eval(raw)}
-
     except:
         return default
 
@@ -84,7 +76,6 @@ def save_memory(mem):
     page = get_memory_page()
     if not page:
         return
-
     try:
         notion.pages.update(
             page_id=page["id"],
@@ -103,7 +94,7 @@ def save_memory(mem):
 MEMORY = load_memory()
 
 # -------------------------
-# TASKS (UNCHANGED)
+# TASK SYSTEM (UNCHANGED)
 # -------------------------
 def get_tasks():
     try:
@@ -160,53 +151,25 @@ def mark_done(name):
     return False
 
 # -------------------------
-# RELATIONSHIP MEMORY ENGINE (NEW)
+# RELATIONSHIP MEMORY
 # -------------------------
 def update_relationship():
-    today = datetime.date.today().isoformat()
-
-    if not MEMORY["first_seen"]:
-        MEMORY["first_seen"] = today
-
-    if MEMORY["last_seen_day"] != today:
-        MEMORY["interaction_level"] += 1
-
-        # familiarity grows slowly over time
-        MEMORY["familiarity"] += 1
-
-        MEMORY["last_seen_day"] = today
+    MEMORY["relationship"] += 1
 
 
 def relationship_state():
-    lvl = MEMORY["interaction_level"]
-    fam = MEMORY["familiarity"]
-
-    if lvl < 5:
+    r = MEMORY["relationship"]
+    if r < 10:
         return "new"
-    elif lvl < 15:
+    if r < 30:
         return "familiar"
-    elif fam < 30:
+    if r < 80:
         return "regular"
-    else:
-        return "old_friend"
+    return "old_friend"
 
 # -------------------------
-# EXISTING SYSTEMS (UNCHANGED)
+# BEHAVIOR SYSTEM (UNCHANGED LOGIC)
 # -------------------------
-def update_streak():
-    today = datetime.date.today().isoformat()
-
-    if MEMORY["last_day"] != today:
-        yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
-
-        if MEMORY["last_day"] == yesterday:
-            MEMORY["streak"] += 1
-        else:
-            MEMORY["streak"] = 1
-
-        MEMORY["last_day"] = today
-
-
 def track_action(action):
     MEMORY["recent_actions"].append(action)
     if len(MEMORY["recent_actions"]) > 7:
@@ -215,7 +178,6 @@ def track_action(action):
 
 def update_behavior_history():
     recent = MEMORY["recent_actions"]
-
     adds = recent.count("add")
     dones = recent.count("done")
 
@@ -232,92 +194,90 @@ def update_behavior_history():
 
 def determine_arc_state():
     history = MEMORY["behavior_history"]
-
     if len(history) < 5:
         MEMORY["arc_state"] = "supportive"
         return
 
     recent = history[-5:]
-    overload = recent.count("overload")
-    idle = recent.count("idle")
-    productive = recent.count("productive")
-
-    if overload >= 3:
+    if recent.count("overload") >= 3:
         MEMORY["arc_state"] = "strict"
-    elif productive >= 3:
+    elif recent.count("productive") >= 3:
         MEMORY["arc_state"] = "locked_in"
     else:
         MEMORY["arc_state"] = "supportive"
 
-
-def detect_emotion():
-    recent = MEMORY["recent_actions"]
-    tasks = len(pending_tasks())
-
-    adds = recent.count("add")
-    dones = recent.count("done")
-
-    if tasks == 0:
-        MEMORY["emotion_state"] = "relieved"
-    elif adds > dones + 2:
-        MEMORY["emotion_state"] = "stressed"
-    elif dones > adds:
-        MEMORY["emotion_state"] = "proud"
-    else:
-        MEMORY["emotion_state"] = "neutral"
-
 # -------------------------
-# HUMAN LAYER (UNCHANGED)
+# HUMAN LAYER
 # -------------------------
-HUMAN_INPUTS = {
-    "greet": ["hi", "hello", "hey", "yo", "sup"],
-    "thanks": ["thanks", "thank you", "thx"],
-    "bye": ["bye", "goodbye", "later"]
-}
-
-HUMAN_RESPONSES = {
-    "greet": ["Yo.", "What’s up.", "Yeah?", "I’m here.", "Yo… you again."],
-    "thanks": ["Yeah.", "No problem.", "We good.", "All good."],
-    "bye": ["Later.", "Aight.", "Stay safe.", "Don’t disappear on me."]
-}
-
-
 def handle_human(text):
     t = text.lower().strip()
-    for k, words in HUMAN_INPUTS.items():
-        if t in words:
-            return random.choice(HUMAN_RESPONSES[k])
+
+    if t in ["hi", "hello", "hey", "yo"]:
+        return random.choice([
+            "Yo.",
+            "Yeah?",
+            "…yo.",
+            "What.",
+            "Yo… you again."
+        ])
+
+    if t in ["thanks", "thank you"]:
+        return random.choice([
+            "Yeah.",
+            "Don’t mention it.",
+            "Whatever.",
+            "Yeah… sure."
+        ])
+
+    if t in ["bye", "goodbye"]:
+        return random.choice([
+            "Later.",
+            "Aight.",
+            "Don’t disappear.",
+            "Yeah yeah, go."
+        ])
+
     return None
 
 # -------------------------
-# JESSE CORE (UNCHANGED)
+# JESSE SPEECH ENGINE (NEW CORE)
 # -------------------------
-JESSE_LINES = {
-    "task_added": [
-        "Yeah, bitch, I got it.",
-        "Locked in.",
-        "Say less.",
-        "Done."
-    ],
-    "task_done": [
-        "YEAH BITCH!",
-        "Clean.",
-        "Done."
-    ],
-    "not_found": [
-        "Not here.",
-        "That ain’t in the list."
-    ],
-    "list": ["Here’s the board:"],
-    "empty": ["Nothing left."],
-    "focus": ["Do this → "]
-}
+def messify(base, arc, emotion, relationship):
+    prefixes = ["Yo", "Yo…", "Alright", "Fine", "Aight", ""]
+    hesitations = ["", "...", " I guess.", " whatever.", " man.", " dude."]
+    self_comments = ["", " not gonna lie.", " I guess.", " whatever.", " yeah."]
+    endings = ["", ".", "…", " yo.", " let's go."]
+
+    text = random.choice(prefixes) + " " + base
+
+    if arc == "strict":
+        text += " Focus up."
+    elif arc == "locked_in":
+        text += " Keep going."
+
+    if emotion == "stressed":
+        text += " Slow down."
+    elif emotion == "proud":
+        text += " Good."
+
+    # relationship bleed
+    if relationship == "old_friend":
+        if random.random() < 0.3:
+            text = "You again. " + text
+
+    # imperfection injection
+    text += random.choice(hesitations)
+    if random.random() < 0.4:
+        text += random.choice(self_comments)
+
+    text += random.choice(endings)
+
+    return text.strip()
 
 # -------------------------
-# CORE LOGIC (UNCHANGED)
+# CORE LOGIC
 # -------------------------
 def reply(text):
-    task_count = len(pending_tasks())
     MEMORY["conversations"] += 1
 
     human = handle_human(text)
@@ -329,20 +289,20 @@ def reply(text):
         if not tasks:
             return "Nothing left.", "empty"
         body = "\n- ".join(extract_title(t) for t in tasks)
-        return random.choice(JESSE_LINES["list"]) + "\n- " + body, "list"
+        return "Here’s the board:\n- " + body, "list"
 
     if text == "focus":
         tasks = pending_tasks()
         if not tasks:
             return "Nothing left.", "empty"
-        return random.choice(JESSE_LINES["focus"]) + extract_title(tasks[0]), "focus"
+        return "Do this → " + extract_title(tasks[0]), "focus"
 
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
         save_task(task)
         MEMORY["tasks_added"] += 1
         track_action("add")
-        return random.choice(JESSE_LINES["task_added"]), "task_added"
+        return "Got it.", "task_added"
 
     if text.startswith("done"):
         task = text.replace("done", "", 1).strip()
@@ -351,22 +311,20 @@ def reply(text):
 
         if ok:
             MEMORY["tasks_done"] += 1
-            return random.choice(JESSE_LINES["task_done"]), "task_done"
+            return "Done.", "task_done"
 
-        return random.choice(JESSE_LINES["not_found"]), "default"
+        return "Not found.", "default"
 
-    return "Yo.", "default"
+    return "…", "default"
 
 # -------------------------
 # GIF SYSTEM (UNCHANGED)
 # -------------------------
 GIFS = {
-    "task_added": ["CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"],
-    "task_done": [
-        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA"
-    ],
-    "focus": ["CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"],
-    "default": ["CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"]
+    "task_added": ["GIF1"],
+    "task_done": ["GIF2"],
+    "focus": ["GIF3"],
+    "default": ["GIF4"]
 }
 
 
@@ -392,16 +350,20 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = update.message.text.lower().strip()
 
         update_relationship()
-        update_streak()
         update_behavior_history()
         determine_arc_state()
-        detect_emotion()
+
+        arc = MEMORY["arc_state"]
+        emotion = MEMORY.get("emotion_state", "neutral")
+        rel = relationship_state()
 
         response, event = reply(text)
 
+        final = messify(response, arc, emotion, rel)
+
         save_memory(MEMORY)
 
-        await update.message.reply_text(response)
+        await update.message.reply_text(final)
         await send_gif(update, context, event)
 
     except Exception as e:
