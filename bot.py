@@ -52,8 +52,6 @@ def load_memory():
         "arc_state": "supportive",
         "emotion_state": "neutral",
         "relationship": 0,
-
-        # NEW
         "emotion_trend": [],
         "personality_seed": 0,
     }
@@ -214,7 +212,7 @@ def determine_arc_state():
         MEMORY["arc_state"] = "supportive"
 
 # -------------------------
-# NEW: EMOTION DRIFT
+# EMOTION DRIFT
 # -------------------------
 def update_emotion_drift():
     history = MEMORY["behavior_history"]
@@ -223,7 +221,6 @@ def update_emotion_drift():
         return
 
     recent = history[-10:]
-
     stress = recent.count("overload")
     calm = recent.count("productive")
 
@@ -235,17 +232,14 @@ def update_emotion_drift():
         MEMORY["emotion_state"] = "neutral"
 
     MEMORY["emotion_trend"].append(MEMORY["emotion_state"])
-
     if len(MEMORY["emotion_trend"]) > 15:
         MEMORY["emotion_trend"].pop(0)
 
 # -------------------------
-# NEW: PERSONALITY EVOLUTION
+# PERSONALITY EVOLUTION
 # -------------------------
 def update_personality():
-    r = MEMORY["relationship"]
-    c = MEMORY["conversations"]
-    MEMORY["personality_seed"] = (r + c) % 100
+    MEMORY["personality_seed"] = (MEMORY["relationship"] + MEMORY["conversations"]) % 100
 
 
 def personality_modifier():
@@ -260,43 +254,37 @@ def personality_modifier():
     return "chaotic"
 
 # -------------------------
-# HUMAN LAYER (UPGRADED)
+# HUMAN LAYER (UNCHANGED LOGIC)
 # -------------------------
 def handle_human(text):
     t = text.lower().strip()
 
-    personality = personality_modifier()
     emotion = MEMORY.get("emotion_state", "neutral")
+    personality = personality_modifier()
 
     if t in ["hi", "hello", "hey", "yo"]:
-
         if personality == "cold":
             return random.choice(["Yeah.", "What.", "Yo."])
         if personality == "warm":
             return random.choice(["Yo man.", "Hey.", "Yeah what's up."])
         if personality == "chaotic":
             return random.choice(["Yo… again?", "What now.", "Yeah yeah I’m here."])
-
         return random.choice(["Yo.", "Yeah?", "What."])
 
     if t in ["thanks", "thank you"]:
-
         if emotion == "stressed":
             return random.choice(["Yeah.", "Don’t overdo it though.", "Whatever."])
-
         return random.choice(["Yeah.", "No problem.", "We good."])
 
     if t in ["bye", "goodbye"]:
-
         if personality == "cold":
             return random.choice(["Later.", "Go."])
-
         return random.choice(["Later.", "Aight.", "Don’t disappear."])
 
     return None
 
 # -------------------------
-# SPEECH ENGINE (EVOLVED)
+# SPEECH ENGINE
 # -------------------------
 def messify(base, arc, emotion, relationship):
 
@@ -380,24 +368,26 @@ def reply(text):
     return "Yo.", "default"
 
 # -------------------------
-# GIF SYSTEM (UNCHANGED - SAFE)
+# 🔥 UPDATED GIF SYSTEM (YOUR NEW SET)
 # -------------------------
 GIFS = {
     "task_added": [
-        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"  # Let's cook Jesse
     ],
     "task_done": [
-        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
-        "CgACAgQAAxkBAAIEeWo_F9QX-x12U1EejZaXVvwcHPtsAAJKAwACaoAEU0BH5rBCYtisPAQ"
+        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",  # Yeah science happy
+        "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA",  # Boohoo angry
     ],
     "focus": [
         "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
     ],
     "default": [
-        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
+        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",  # yelling bitch
+        "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA",  # confused what
+        "CgACAgQAAxkBAAIEeWo_F9QX-x12U1EejZaXVvwcHPtsAAJKAwACaoAEU0BH5rBCYtisPAQ",  # dancing
+        "CgACAgQAAxkBAANtaj0K7FPuicSUn89jyEwa098jnd0AAk0DAAJZhwRTeB7Y2zkHLno8BA",  # drinking water
     ]
 }
-
 
 def get_gif(event):
     return random.choice(GIFS.get(event, GIFS["default"]))
@@ -423,7 +413,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_relationship()
         update_behavior_history()
         determine_arc_state()
-
         update_personality()
         update_emotion_drift()
 
