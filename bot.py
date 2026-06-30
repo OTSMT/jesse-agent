@@ -51,7 +51,11 @@ def load_memory():
         "behavior_history": [],
         "arc_state": "supportive",
         "emotion_state": "neutral",
-        "relationship": 0
+        "relationship": 0,
+
+        # NEW
+        "emotion_trend": [],
+        "personality_seed": 0,
     }
 
     if not page:
@@ -170,7 +174,7 @@ def relationship_state():
     return "old_friend"
 
 # -------------------------
-# BEHAVIOR SYSTEM (UNCHANGED)
+# BEHAVIOR SYSTEM
 # -------------------------
 def track_action(action):
     MEMORY["recent_actions"].append(action)
@@ -210,31 +214,105 @@ def determine_arc_state():
         MEMORY["arc_state"] = "supportive"
 
 # -------------------------
-# HUMAN LAYER
+# NEW: EMOTION DRIFT
+# -------------------------
+def update_emotion_drift():
+    history = MEMORY["behavior_history"]
+
+    if len(history) < 3:
+        return
+
+    recent = history[-10:]
+
+    stress = recent.count("overload")
+    calm = recent.count("productive")
+
+    if stress > calm:
+        MEMORY["emotion_state"] = "stressed"
+    elif calm > stress:
+        MEMORY["emotion_state"] = "calm"
+    else:
+        MEMORY["emotion_state"] = "neutral"
+
+    MEMORY["emotion_trend"].append(MEMORY["emotion_state"])
+
+    if len(MEMORY["emotion_trend"]) > 15:
+        MEMORY["emotion_trend"].pop(0)
+
+# -------------------------
+# NEW: PERSONALITY EVOLUTION
+# -------------------------
+def update_personality():
+    r = MEMORY["relationship"]
+    c = MEMORY["conversations"]
+    MEMORY["personality_seed"] = (r + c) % 100
+
+
+def personality_modifier():
+    seed = MEMORY["personality_seed"]
+
+    if seed < 20:
+        return "cold"
+    elif seed < 50:
+        return "neutral"
+    elif seed < 80:
+        return "warm"
+    return "chaotic"
+
+# -------------------------
+# HUMAN LAYER (UPGRADED)
 # -------------------------
 def handle_human(text):
     t = text.lower().strip()
 
+    personality = personality_modifier()
+    emotion = MEMORY.get("emotion_state", "neutral")
+
     if t in ["hi", "hello", "hey", "yo"]:
-        return random.choice(["Yo.", "Yeah?", "What.", "Yo… you again."])
+
+        if personality == "cold":
+            return random.choice(["Yeah.", "What.", "Yo."])
+        if personality == "warm":
+            return random.choice(["Yo man.", "Hey.", "Yeah what's up."])
+        if personality == "chaotic":
+            return random.choice(["Yo… again?", "What now.", "Yeah yeah I’m here."])
+
+        return random.choice(["Yo.", "Yeah?", "What."])
 
     if t in ["thanks", "thank you"]:
+
+        if emotion == "stressed":
+            return random.choice(["Yeah.", "Don’t overdo it though.", "Whatever."])
+
         return random.choice(["Yeah.", "No problem.", "We good."])
 
     if t in ["bye", "goodbye"]:
+
+        if personality == "cold":
+            return random.choice(["Later.", "Go."])
+
         return random.choice(["Later.", "Aight.", "Don’t disappear."])
 
     return None
 
 # -------------------------
-# SPEECH ENGINE (SAFE VERSION)
+# SPEECH ENGINE (EVOLVED)
 # -------------------------
 def messify(base, arc, emotion, relationship):
-    prefixes = ["Yo", "Yo…", "Alright", "Aight", ""]
-    hesitations = ["", "...", " I guess.", " whatever."]
-    endings = ["", ".", "…", " yo."]
 
-    text = random.choice(prefixes) + " " + base
+    personality = personality_modifier()
+
+    prefixes = {
+        "cold": ["Yo", "Aight", ""],
+        "neutral": ["Yo", "Yo…", "Alright"],
+        "warm": ["Yo man", "Aight bro", "Yo"],
+        "chaotic": ["Yo…", "Bro", "Yo yo", ""]
+    }
+
+    hesitations = ["", "...", " I guess.", " whatever.", " man."]
+    endings = ["", ".", "…", " yo.", " yeah."]
+
+    text = random.choice(prefixes[personality]) + " " + base
 
     if arc == "strict":
         text += " Focus."
@@ -243,11 +321,15 @@ def messify(base, arc, emotion, relationship):
 
     if emotion == "stressed":
         text += " Slow down."
-    elif emotion == "proud":
-        text += " Good."
+    elif emotion == "calm":
+        if random.random() < 0.2:
+            text += " That's fine."
 
     if relationship == "old_friend" and random.random() < 0.25:
         text = "You again. " + text
+
+    if personality == "chaotic" and random.random() < 0.3:
+        text += " not gonna lie."
 
     text += random.choice(hesitations)
     text += random.choice(endings)
@@ -298,7 +380,7 @@ def reply(text):
     return "Yo.", "default"
 
 # -------------------------
-# 🔥 FIXED GIF SYSTEM (RESTORED ORIGINAL IDS)
+# GIF SYSTEM (UNCHANGED - SAFE)
 # -------------------------
 GIFS = {
     "task_added": [
@@ -341,6 +423,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_relationship()
         update_behavior_history()
         determine_arc_state()
+
+        update_personality()
+        update_emotion_drift()
 
         arc = MEMORY["arc_state"]
         emotion = MEMORY["emotion_state"]
