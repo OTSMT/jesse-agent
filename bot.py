@@ -68,8 +68,10 @@ def load_memory():
 
         "task_emotions": {},
         "task_fail_patterns": {},
+
+        # 4.0 ADDITIONS
         "weekly_history": [],
-        "global_behavior_score": 0,
+        "last_week_summary": None,
     }
 
     if not page:
@@ -168,24 +170,32 @@ def mark_done(name):
     return False
 
 # -------------------------
+# WEEK SYSTEM (JESSE 4.0 CORE)
+# -------------------------
+def check_week_reset():
+    today = datetime.date.today()
+    start = datetime.datetime.strptime(MEMORY["weekly_stats"]["week_start"], "%Y-%m-%d").date()
+
+    if (today - start).days >= 7:
+        MEMORY["weekly_history"].append(dict(MEMORY["weekly_stats"]))
+
+        MEMORY["weekly_stats"] = {
+            "adds": 0,
+            "done": 0,
+            "week_start": str(today),
+        }
+
+# -------------------------
 # TASK INTELLIGENCE
 # -------------------------
-def set_task_emotion(task, state):
-    MEMORY["task_emotions"][task] = state
-
-
-def update_fail_pattern(task, success):
-    if task not in MEMORY["task_fail_patterns"]:
-        MEMORY["task_fail_patterns"][task] = 0
-
-    if not success:
-        MEMORY["task_fail_patterns"][task] += 1
-
-
 def task_score(task):
     age = MEMORY["task_memory"].get(task, {}).get("mentions", 0)
     fails = MEMORY["task_fail_patterns"].get(task, 0)
     return age + (fails * 3)
+
+
+def failure_level(task):
+    return MEMORY["task_fail_patterns"].get(task, 0)
 
 # -------------------------
 # BEHAVIOR SYSTEM
@@ -241,8 +251,7 @@ def update_emotion():
 
     MEMORY["emotion_state"] = (
         "stressed" if stress > calm else
-        "calm" if calm > stress else
-        "neutral"
+        "calm" if calm > stress else "neutral"
     )
 
 
@@ -259,39 +268,38 @@ def personality():
     return "chaotic"
 
 # -------------------------
-# GIF SYSTEM (RESTORED)
+# WEEKLY SUMMARY (JESSE 4.0)
 # -------------------------
-GIFS = {
-    "task_added": [
-        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
-    ],
-    "task_done": [
-        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
-        "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA"
-    ],
-    "default": [
-        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
-        "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"
-    ],
-    "focus": [
-        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
-    ]
-}
+def weekly_summary():
+    w = MEMORY["weekly_stats"]
+    return (
+        f"Weekly report:\n"
+        f"- Tasks added: {w['adds']}\n"
+        f"- Tasks done: {w['done']}\n"
+        f"- Active streak week: {len(MEMORY['weekly_history'])}"
+    )
 
+# -------------------------
+# HUMAN LAYER
+# -------------------------
+def handle_human(text):
+    t = text.lower().strip()
+    p = personality()
 
-def get_gif(event):
-    return random.choice(GIFS.get(event, GIFS["default"]))
+    if t in ["hi", "hello", "yo", "hey"]:
+        return random.choice({
+            "cold": ["Yeah.", "What.", "Yo."],
+            "warm": ["Yo man.", "Hey.", "Yeah what's up."],
+            "chaotic": ["Yo… again?", "What now.", "Yeah yeah I’m here."]
+        }.get(p, ["Yo.", "Yeah?", "What."]))
 
+    if t in ["thanks", "thank you"]:
+        return "Yeah."
 
-async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
-    try:
-        gif = get_gif(event)
-        await context.bot.send_animation(
-            chat_id=update.effective_chat.id,
-            animation=gif
-        )
-    except:
-        pass
+    if t in ["bye", "goodbye"]:
+        return "Later."
+
+    return None
 
 # -------------------------
 # SPEECH ENGINE
@@ -325,15 +333,20 @@ def reply(text):
     MEMORY["conversations"] += 1
     track_action("other")
 
+    # WEEK RESET CHECK
+    check_week_reset()
+
+    if text == "week":
+        return weekly_summary(), "default"
+
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
         save_task(task)
 
         MEMORY["tasks_added"] += 1
-        update_fail_pattern(task, True)
+        track_action("add")
         MEMORY["weekly_stats"]["adds"] += 1
 
-        set_task_emotion(task, "neutral")
         return "Got it.", "task_added"
 
     if text.startswith("done"):
@@ -344,11 +357,9 @@ def reply(text):
 
         if ok:
             MEMORY["tasks_done"] += 1
-            update_fail_pattern(task, True)
             MEMORY["weekly_stats"]["done"] += 1
             return "Done.", "task_done"
 
-        update_fail_pattern(task, False)
         return "Not found.", "default"
 
     if text == "focus":
@@ -374,6 +385,38 @@ def reply(text):
         return "Here’s the board:\n- " + "\n- ".join(extract_title(t) for t in tasks), "default"
 
     return "Yo.", "default"
+
+# -------------------------
+# GIF SYSTEM
+# -------------------------
+GIFS = {
+    "task_added": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ],
+    "task_done": [
+        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
+        "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA"
+    ],
+    "default": [
+        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
+        "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"
+    ]
+}
+
+
+def get_gif(event):
+    return random.choice(GIFS.get(event, GIFS["default"]))
+
+
+async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
+    try:
+        gif = get_gif(event)
+        await context.bot.send_animation(
+            chat_id=update.effective_chat.id,
+            animation=gif
+        )
+    except:
+        pass
 
 # -------------------------
 # HANDLER
