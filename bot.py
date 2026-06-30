@@ -55,13 +55,22 @@ def load_memory():
         "emotion_trend": [],
         "personality_seed": 0,
 
-        # Jesse 2.0 additions
+        # Jesse 2.0
         "last_messages": [],
         "last_reply_time": None,
         "session_count": 0,
         "last_mood_comment_day": None,
         "legendary_cooldown": 0,
-        "repeat_block": ""
+        "repeat_block": "",
+
+        # Jesse 3.0
+        "task_memory": {},
+        "weekly_stats": {
+            "adds": 0,
+            "done": 0,
+            "week_start": str(datetime.date.today()),
+        },
+        "task_history_log": [],
     }
 
     if not page:
@@ -163,7 +172,52 @@ def mark_done(name):
     return False
 
 # -------------------------
-# RELATIONSHIP + BEHAVIOR
+# JESSE 3.0 TASK MEMORY ENGINE
+# -------------------------
+def update_task_memory(action, task_name):
+    mem = MEMORY["task_memory"]
+
+    if task_name not in mem:
+        mem[task_name] = {
+            "created": str(datetime.date.today()),
+            "mentions": 0,
+            "done": False,
+            "last_seen": str(datetime.date.today()),
+        }
+
+    entry = mem[task_name]
+    entry["mentions"] += 1
+    entry["last_seen"] = str(datetime.date.today())
+
+    if action == "done":
+        entry["done"] = True
+
+
+def task_age_days(task_name):
+    mem = MEMORY["task_memory"]
+    if task_name not in mem:
+        return 0
+
+    created = datetime.datetime.strptime(mem[task_name]["created"], "%Y-%m-%d").date()
+    return (datetime.date.today() - created).days
+
+
+def procrastination_level(task_name):
+    mem = MEMORY["task_memory"]
+    if task_name not in mem:
+        return 0
+
+    entry = mem[task_name]
+    if entry["done"]:
+        return 0
+
+    age = task_age_days(task_name)
+    mentions = entry["mentions"]
+
+    return age + (mentions * 2)
+
+# -------------------------
+# BEHAVIOR SYSTEM
 # -------------------------
 def update_relationship():
     MEMORY["relationship"] += 1
@@ -240,7 +294,7 @@ def personality_modifier():
     return "chaotic"
 
 # -------------------------
-# JESSE 2.0 MEMORY ENGINE
+# JESSE MEMORY ENGINE (2.0)
 # -------------------------
 def now_ts():
     return datetime.datetime.now().timestamp()
@@ -332,7 +386,6 @@ def daily_mood_check():
 # -------------------------
 def handle_human(text):
     t = text.lower().strip()
-    emotion = MEMORY.get("emotion_state", "neutral")
     personality = personality_modifier()
 
     if t in ["hi", "hello", "hey", "yo"]:
@@ -393,9 +446,6 @@ def messify(base, arc, emotion, relationship):
     elif pattern == "focused":
         text += " Don’t lose it."
 
-    if personality == "chaotic" and random.random() < 0.3:
-        text += " not gonna lie."
-
     if legendary == "quiet_serious":
         text = "…You’re moving different lately."
     elif legendary == "unexpected_proud":
@@ -431,11 +481,7 @@ def get_gif(event):
 
 async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
     try:
-        arc = MEMORY["arc_state"]
-        emotion = MEMORY["emotion_state"]
-
         gif = get_gif(event)
-
         await context.bot.send_animation(
             chat_id=update.effective_chat.id,
             animation=gif
@@ -444,13 +490,20 @@ async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: st
         pass
 
 # -------------------------
-# CORE REPLY
+# CORE REPLY (JESSE 3.0)
 # -------------------------
 def reply(text):
 
     MEMORY["conversations"] += 1
     record_message(text)
-    track_action(text if text in ["add", "done"] else "other")
+
+    action = "other"
+    if text.startswith("add"):
+        action = "add"
+    elif text.startswith("done"):
+        action = "done"
+
+    track_action(action)
 
     if anti_repeat_check(text):
         return "Yeah.", "default"
@@ -473,23 +526,34 @@ def reply(text):
         tasks = pending_tasks()
         if not tasks:
             return "Nothing left.", "default"
-        return "Do this → " + extract_title(tasks[0]), "default"
+
+        t = extract_title(tasks[0])
+        level = procrastination_level(t)
+
+        if level > 10:
+            return f"You’ve been avoiding this → {t}", "focus"
+        elif level > 5:
+            return f"This again… → {t}", "focus"
+        return "Do this → " + t, "focus"
 
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
         save_task(task)
         MEMORY["tasks_added"] += 1
-        track_action("add")
+        update_task_memory("add", task)
+        MEMORY["weekly_stats"]["adds"] += 1
         return "Got it.", "task_added"
 
     if text.startswith("done"):
         task = text.replace("done", "", 1).strip()
         ok = mark_done(task)
-        track_action("done")
 
         if ok:
             MEMORY["tasks_done"] += 1
+            update_task_memory("done", task)
+            MEMORY["weekly_stats"]["done"] += 1
             return "Done.", "task_done"
+
         return "Not found.", "default"
 
     return "Yo.", "default"
@@ -508,7 +572,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_emotion_drift()
 
         response, event = reply(text)
-        final = messify(response, MEMORY["arc_state"], MEMORY["emotion_state"], MEMORY["relationship"])
+
+        final = messify(
+            response,
+            MEMORY["arc_state"],
+            MEMORY["emotion_state"],
+            MEMORY["relationship"]
+        )
 
         save_memory(MEMORY)
 
