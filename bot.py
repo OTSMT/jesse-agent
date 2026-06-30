@@ -1,6 +1,5 @@
 import os
 import random
-import asyncio
 import datetime
 import traceback
 import json
@@ -24,6 +23,7 @@ notion = Client(auth=NOTION_API_KEY)
 # MEMORY
 # -------------------------
 MEMORY_PAGE_NAME = "JESSE_MEMORY"
+
 
 def get_memory_page():
     try:
@@ -49,7 +49,6 @@ def load_memory():
         "conversations": 0,
         "last_recap_date": None,
         "chat_id": None,
-
         "recent_actions": [],
         "fail_streak": 0,
         "success_streak": 0,
@@ -70,7 +69,6 @@ def load_memory():
         try:
             return {**default, **json.loads(raw)}
         except:
-            # fallback for old eval-based memory (migration safety)
             return {**default, **eval(raw)}
 
     except:
@@ -173,32 +171,29 @@ def update_streak():
         MEMORY["last_day"] = today
 
 # -------------------------
-# SMART JESSE BEHAVIOR SYSTEM
+# BEHAVIOR SYSTEM
 # -------------------------
 def track_action(action):
     MEMORY["recent_actions"].append(action)
-
     if len(MEMORY["recent_actions"]) > 5:
         MEMORY["recent_actions"].pop(0)
 
 
 def analyze_behavior():
     recent = MEMORY.get("recent_actions", [])
-
     adds = recent.count("add")
     dones = recent.count("done")
 
     if adds >= 3 and dones == 0:
         return "overwhelming"
-    if dones >= adds and adds > 0:
+    if dones > adds and adds > 0:
         return "productive"
     if adds == 0 and dones == 0:
         return "idle"
-
     return "normal"
 
 # -------------------------
-# JESSE RESPONSES
+# JESSE CORE PERSONALITY
 # -------------------------
 JESSE_LINES = {
     "task_added": ["Added it.", "Got it.", "Locked in.", "Say less.", "Bet.", "On it."],
@@ -208,6 +203,74 @@ JESSE_LINES = {
     "empty": ["Nothing left.", "Board’s clean.", "We’re done here."],
     "focus": ["Do this → ", "Focus → ", "Only this → "]
 }
+
+
+def mood(task_count):
+    recent = MEMORY.get("recent_actions", [])
+    convo = MEMORY.get("conversations", 0)
+
+    adds = recent.count("add")
+    dones = recent.count("done")
+
+    if task_count == 0:
+        base = "empty"
+    elif task_count <= 2:
+        base = "calm"
+    elif task_count <= 5:
+        base = "focused"
+    else:
+        base = "overloaded"
+
+    if adds >= 3 and dones == 0:
+        base = "overloaded"
+
+    if dones > adds and task_count > 0:
+        base = "focused"
+
+    if convo % 6 == 0 and convo > 0:
+        base = random.choice(["calm", "focused", "overloaded", "empty"])
+
+    if random.random() < 0.12:
+        base = random.choice(["calm", "focused", "overloaded"])
+
+    return base
+
+
+def jesse(event, task_count):
+    update_streak()
+
+    behavior = analyze_behavior()
+    current_mood = mood(task_count)
+
+    moods = {
+        "calm": ["Yo. ", "Alright. ", "Aight. ", "Hmm. "],
+        "focused": ["Lock in. ", "Yo. ", "Listen. ", "Alright listen. "],
+        "overloaded": ["Yo... ", "Bro... ", "This is getting heavy. ", "Ayo... "],
+        "empty": ["... ", "Yo. ", "Damn. ", "Nothing going on. "]
+    }
+
+    behavior_lines = {
+        "overwhelming": ["Slow down a bit. ", "You're stacking too much. ", "You're going a bit wild here. "],
+        "productive": ["We moving clean. ", "This is solid. ", "You're locked in. "],
+        "idle": ["You disappeared. ", "We doing nothing? ", "Where you at? "],
+        "normal": [""]
+    }
+
+    base = random.choice(moods[current_mood])
+    behavior_layer = random.choice(behavior_lines[behavior])
+    event_line = random.choice(JESSE_LINES.get(event, ["Yo. "]))
+
+    spice = ""
+    if current_mood == "overloaded" and behavior == "overwhelming":
+        spice = random.choice(["Chill.", "Relax.", "Take it easy."])
+    elif current_mood == "empty":
+        spice = random.choice(["You good?", "What's the plan?", "We starting or what?"])
+    elif current_mood == "focused":
+        spice = random.choice(["Keep it going.", "Don't stop.", "Momentum."])
+
+    suffix = random.choice(["", " yo.", " let's go.", " keep moving.", " bet."])
+
+    return base + behavior_layer + event_line + spice + suffix
 
 # -------------------------
 # GIF SYSTEM
@@ -249,45 +312,6 @@ async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: st
         pass
 
 # -------------------------
-# SMART JESSE ENGINE
-# -------------------------
-def mood(task_count):
-    if task_count == 0:
-        return "empty"
-    if task_count <= 2:
-        return "calm"
-    if task_count <= 5:
-        return "focused"
-    return "overloaded"
-
-
-def jesse(event, task_count):
-    update_streak()
-
-    behavior = analyze_behavior()
-
-    moods = {
-        "calm": ["Yo. ", "Alright. ", "Aight. "],
-        "focused": ["Lock in. ", "Yo. ", "Listen. "],
-        "overloaded": ["Yo... ", "Bro... ", "This is a lot. "],
-        "empty": ["... ", "Yo. ", "Damn. "]
-    }
-
-    behavior_lines = {
-        "overwhelming": ["Yo slow down.", "You're stacking too much.", "Relax for a sec."],
-        "productive": ["We moving clean.", "This is good.", "Locked in behavior."],
-        "idle": ["You disappeared.", "We doing nothing?", "Hello?"],
-        "normal": [""]
-    }
-
-    base = random.choice(moods[mood(task_count)])
-    behavior_layer = random.choice(behavior_lines[behavior])
-    event_line = random.choice(JESSE_LINES.get(event, ["Yo."]))
-    suffix = random.choice(["", " yo.", " let's go.", " keep moving."])
-
-    return base + behavior_layer + event_line + suffix
-
-# -------------------------
 # CORE LOGIC
 # -------------------------
 def reply(text):
@@ -313,14 +337,12 @@ def reply(text):
         task = text.replace("add", "", 1).strip()
         save_task(task)
         MEMORY["tasks_added"] += 1
-
         track_action("add")
         return random.choice(JESSE_LINES["task_added"]), "task_added"
 
     if text.startswith("done"):
         task = text.replace("done", "", 1).strip()
         ok = mark_done(task)
-
         track_action("done")
 
         if ok:
