@@ -55,21 +55,17 @@ def load_memory():
         "relationship": 0,
         "personality_seed": 0,
 
-        "weekly_stats": {
-            "adds": 0,
-            "done": 0,
-            "week_start": str(datetime.date.today()),
-        },
+        "weekly_stats": {"adds": 0, "done": 0},
 
-        "weekly_history": [],
-        "identity": "planner",
-
-        # 6.0 CORE
         "task_categories": {},
         "avoidance_index": 0,
         "consistency_score": 0,
-        "execution_speed": 0,
-        "honesty_mode": False,
+
+        # 7.0 ADDITIONS
+        "last_outputs": [],
+        "pressure_map": {},
+        "habit_prediction": {},
+        "repeat_guard": "",
     }
 
     if not page:
@@ -95,7 +91,13 @@ def save_memory(mem):
     try:
         notion.pages.update(
             page_id=page["id"],
-            properties={"Data": {"rich_text": [{"text": {"content": json.dumps(mem)}}]}}
+            properties={
+                "Data": {
+                    "rich_text": [
+                        {"text": {"content": json.dumps(mem)}}
+                    ]
+                }
+            },
         )
     except:
         pass
@@ -161,51 +163,46 @@ def mark_done(name):
     return False
 
 # -------------------------
-# CATEGORY ENGINE (6.0 CORE)
+# CATEGORY + PRESSURE SYSTEM
 # -------------------------
 def detect_category(text):
     t = text.lower()
-    if any(x in t for x in ["email", "form", "invoice", "call"]):
+    if any(x in t for x in ["email", "form", "invoice"]):
         return "admin"
-    if any(x in t for x in ["study", "learn", "read", "course"]):
+    if any(x in t for x in ["study", "learn", "read"]):
         return "learning"
-    if any(x in t for x in ["work", "project", "report"]):
+    if any(x in t for x in ["work", "project"]):
         return "work"
-    if any(x in t for x in ["gym", "health", "run", "sleep"]):
+    if any(x in t for x in ["gym", "run", "sleep"]):
         return "personal"
     return "unknown"
 
 
-def update_category(task, success):
+def update_pressure(task, success):
     cat = detect_category(task)
+    if cat not in MEMORY["pressure_map"]:
+        MEMORY["pressure_map"][cat] = {"miss": 0, "hit": 0}
 
-    if cat not in MEMORY["task_categories"]:
-        MEMORY["task_categories"][cat] = {"attempts": 0, "fails": 0}
-
-    MEMORY["task_categories"][cat]["attempts"] += 1
-    if not success:
-        MEMORY["task_categories"][cat]["fails"] += 1
+    if success:
+        MEMORY["pressure_map"][cat]["hit"] += 1
+    else:
+        MEMORY["pressure_map"][cat]["miss"] += 1
 
 
-def category_avoidance_score():
-    total_fails = sum(v["fails"] for v in MEMORY["task_categories"].values())
-    total_attempts = sum(v["attempts"] for v in MEMORY["task_categories"].values())
-    return total_fails / (total_attempts + 1)
+def category_pressure(cat):
+    d = MEMORY["pressure_map"].get(cat, {"hit": 0, "miss": 0})
+    return d["miss"] / (d["hit"] + d["miss"] + 1)
+
+
+def overall_pressure():
+    total_miss = sum(v["miss"] for v in MEMORY["pressure_map"].values())
+    total_hit = sum(v["hit"] for v in MEMORY["pressure_map"].values())
+    return total_miss / (total_hit + 1)
 
 # -------------------------
-# BEHAVIOR SYSTEM
+# BEHAVIOR CORE
 # -------------------------
-def update_relationship():
-    MEMORY["relationship"] += 1
-
-
-def track_action(action):
-    MEMORY["recent_actions"].append(action)
-    if len(MEMORY["recent_actions"]) > 7:
-        MEMORY["recent_actions"].pop(0)
-
-
-def update_behavior_history():
+def update_behavior():
     r = MEMORY["recent_actions"]
     adds = r.count("add")
     dones = r.count("done")
@@ -217,11 +214,11 @@ def update_behavior_history():
     else:
         MEMORY["behavior_history"].append("productive")
 
-    if len(MEMORY["behavior_history"]) > 25:
+    if len(MEMORY["behavior_history"]) > 30:
         MEMORY["behavior_history"].pop(0)
 
 
-def arc_state_update():
+def arc_state():
     h = MEMORY["behavior_history"]
     if len(h) < 5:
         MEMORY["arc_state"] = "supportive"
@@ -236,90 +233,113 @@ def arc_state_update():
         MEMORY["arc_state"] = "supportive"
 
 
-def update_emotion():
-    h = MEMORY["behavior_history"]
-    stress = h[-10:].count("overload")
-    calm = h[-10:].count("productive")
-
+def emotion():
+    h = MEMORY["behavior_history"][-10:]
     MEMORY["emotion_state"] = (
-        "stressed" if stress > calm else
-        "calm" if calm > stress else "neutral"
+        "stressed" if h.count("overload") > h.count("productive")
+        else "calm" if h.count("productive") > h.count("overload")
+        else "neutral"
     )
 
 # -------------------------
-# METRICS ENGINE (6.0 CORE)
+# REPETITION GUARD (7.0 CORE)
 # -------------------------
-def compute_metrics():
-    adds = MEMORY["weekly_stats"]["adds"]
-    done = MEMORY["weekly_stats"]["done"]
+def repeat_guard(text):
+    if text == MEMORY["repeat_guard"]:
+        return True
+    MEMORY["repeat_guard"] = text
+    return False
 
-    MEMORY["consistency_score"] = done / (adds + 1)
-    MEMORY["avoidance_index"] = category_avoidance_score()
-    MEMORY["execution_speed"] = done - adds * 0.2
 
-    MEMORY["honesty_mode"] = MEMORY["avoidance_index"] > 0.6
+def push_output(text):
+    MEMORY["last_outputs"].append(text)
+    if len(MEMORY["last_outputs"]) > 6:
+        MEMORY["last_outputs"].pop(0)
 
 # -------------------------
 # PERSONALITY
 # -------------------------
 def personality():
     seed = (MEMORY["relationship"] + MEMORY["conversations"]) % 100
-
     if seed < 20:
         return "cold"
-    elif seed < 50:
+    if seed < 50:
         return "neutral"
-    elif seed < 80:
+    if seed < 80:
         return "warm"
     return "chaotic"
 
 # -------------------------
-# HUMAN LAYER
+# JESSE VOICE ENGINE 7.0 (HEAVY DIALOG VARIETY)
 # -------------------------
-def handle_human(text):
-    t = text.lower().strip()
+JESSE_LINES = {
+    "cold": [
+        "Yeah.",
+        "What.",
+        "Alright.",
+        "…yeah."
+    ],
+    "neutral": [
+        "Yo.",
+        "Alright, listen.",
+        "Yeah I got you.",
+        "Hmm."
+    ],
+    "warm": [
+        "Yo man.",
+        "Aight, I hear you.",
+        "Yeah bro, okay.",
+        "Let’s go."
+    ],
+    "chaotic": [
+        "Yo… again?",
+        "Bro what now.",
+        "Aight aight I’m here.",
+        "Yeah yeah yeah."
+    ]
+}
 
-    if t in ["hi", "hello", "yo", "hey"]:
-        return random.choice(["Yo.", "Yeah.", "What."])
 
-    if t in ["thanks", "thank you"]:
-        return "Yeah."
-
-    if t in ["bye", "goodbye"]:
-        return "Later."
-
-    return None
+def jesse_prefix():
+    p = personality()
+    return random.choice(JESSE_LINES[p])
 
 # -------------------------
-# SPEECH ENGINE (6.0)
+# SPEECH ENGINE
 # -------------------------
 def messify(base, arc, emotion, rel):
 
     p = personality()
-    avoidance = MEMORY.get("avoidance_index", 0)
+    pressure = overall_pressure()
 
-    text = random.choice({
-        "cold": ["Yo", "Aight", ""],
-        "neutral": ["Yo", "Yo…", "Alright"],
-        "warm": ["Yo man", "Aight bro", "Yo"],
-        "chaotic": ["Yo…", "Bro", "Yo yo", ""]
-    }[p]) + " " + base
+    if pressure > 0.75:
+        base = "You’re stacking too much again. " + base
 
-    # ARC
+    text = jesse_prefix() + " " + base
+
+    # ARC BEHAVIOR
     if arc == "strict":
         text += " Focus."
     elif arc == "locked_in":
         text += " Keep going."
 
-    # HONEST MODE
-    if MEMORY.get("honesty_mode"):
-        text = "You keep avoiding the same patterns. " + text
+    # EMOTION LAYER
+    if emotion == "stressed":
+        text += " Slow down."
+    elif emotion == "calm" and random.random() < 0.2:
+        text += " That’s fine."
 
-    if avoidance > 0.7:
-        text += " This is becoming a pattern."
+    # RELATIONSHIP LAYER
+    if rel > 60 and random.random() < 0.25:
+        text = "You again. " + text
 
-    if rel > 60 and random.random() < 0.2:
-        text = "Still here? " + text
+    # PRESSURE PERSONALITY SHIFT
+    if pressure > 0.8:
+        text += " I’m not saying it twice."
+
+    # VARIATION ENDINGS (IMPORTANT FOR NON-REPETITION)
+    endings = ["", ".", "...", " yeah.", " man.", " alright."]
+    text += random.choice(endings)
 
     return text.strip()
 
@@ -330,9 +350,20 @@ def reply(text):
 
     MEMORY["conversations"] += 1
 
-    if text == "week":
-        w = MEMORY["weekly_stats"]
-        return f"Week:\nAdds: {w['adds']}\nDone: {w['done']}\nAvoidance: {MEMORY.get('avoidance_index',0):.2f}", "default"
+    if repeat_guard(text):
+        return "Yeah.", "default"
+
+    if text == "list":
+        tasks = pending_tasks()
+        if not tasks:
+            return "Nothing left.", "default"
+        return "Here’s the board:\n- " + "\n- ".join(extract_title(t) for t in tasks), "default"
+
+    if text == "focus":
+        tasks = pending_tasks()
+        if not tasks:
+            return "Nothing left.", "default"
+        return "Do this → " + extract_title(tasks[0]), "default"
 
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
@@ -341,8 +372,8 @@ def reply(text):
         MEMORY["tasks_added"] += 1
         MEMORY["weekly_stats"]["adds"] += 1
 
-        update_category(task, True)
-        track_action("add")
+        MEMORY["recent_actions"].append("add")
+        update_pressure(task, True)
 
         return "Got it.", "task_added"
 
@@ -350,61 +381,18 @@ def reply(text):
         task = text.replace("done", "", 1).strip()
         ok = mark_done(task)
 
-        track_action("done")
+        MEMORY["recent_actions"].append("done")
 
         if ok:
             MEMORY["tasks_done"] += 1
             MEMORY["weekly_stats"]["done"] += 1
-            update_category(task, True)
+            update_pressure(task, True)
             return "Done.", "task_done"
 
-        update_category(task, False)
+        update_pressure(task, False)
         return "Not found.", "default"
 
-    if text == "focus":
-        tasks = pending_tasks()
-        if not tasks:
-            return "Nothing left.", "default"
-
-        t = extract_title(tasks[0])
-
-        if MEMORY.get("avoidance_index", 0) > 0.6:
-            return f"You keep avoiding similar tasks → {t}", "default"
-
-        return "Do this → " + t, "default"
-
-    if text == "list":
-        tasks = pending_tasks()
-        if not tasks:
-            return "Nothing left.", "default"
-
-        return "Here’s the board:\n- " + "\n- ".join(extract_title(t) for t in tasks), "default"
-
     return "Yo.", "default"
-
-# -------------------------
-# GIF SYSTEM
-# -------------------------
-GIFS = {
-    "task_added": ["CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"],
-    "task_done": ["CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA"],
-    "default": ["CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"]
-}
-
-
-def get_gif(event):
-    return random.choice(GIFS.get(event, GIFS["default"]))
-
-
-async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
-    try:
-        gif = get_gif(event)
-        await context.bot.send_animation(
-            chat_id=update.effective_chat.id,
-            animation=gif
-        )
-    except:
-        pass
 
 # -------------------------
 # HANDLER
@@ -413,20 +401,25 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = update.message.text.lower().strip()
 
-        update_relationship()
-        update_behavior_history()
-        arc_state_update()
-        update_emotion()
-        compute_metrics()
+        MEMORY["relationship"] += 1
 
-        base, event = reply(text)
+        update_behavior()
+        arc_state()
+        emotion()
 
-        final = messify(base, MEMORY["arc_state"], MEMORY["emotion_state"], MEMORY["relationship"])
+        response, event = reply(text)
 
+        final = messify(
+            response,
+            MEMORY["arc_state"],
+            MEMORY["emotion_state"],
+            MEMORY["relationship"]
+        )
+
+        push_output(final)
         save_memory(MEMORY)
 
         await update.message.reply_text(final)
-        await send_gif(update, context, event)
 
     except Exception as e:
         print("ERROR:", e)
