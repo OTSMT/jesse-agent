@@ -60,6 +60,7 @@ def load_memory():
     try:
         props = page.get("properties", {})
         data = props.get("Data", {}).get("rich_text", [])
+
         if not data:
             return default
 
@@ -68,6 +69,7 @@ def load_memory():
             return {**default, **json.loads(raw)}
         except:
             return {**default, **eval(raw)}
+
     except:
         return default
 
@@ -161,14 +163,14 @@ def relationship_state():
     r = MEMORY["relationship"]
     if r < 10:
         return "new"
-    if r < 30:
+    elif r < 30:
         return "familiar"
-    if r < 80:
+    elif r < 80:
         return "regular"
     return "old_friend"
 
 # -------------------------
-# BEHAVIOR SYSTEM (UNCHANGED LOGIC)
+# BEHAVIOR SYSTEM (UNCHANGED)
 # -------------------------
 def track_action(action):
     MEMORY["recent_actions"].append(action)
@@ -194,6 +196,7 @@ def update_behavior_history():
 
 def determine_arc_state():
     history = MEMORY["behavior_history"]
+
     if len(history) < 5:
         MEMORY["arc_state"] = "supportive"
         return
@@ -213,45 +216,28 @@ def handle_human(text):
     t = text.lower().strip()
 
     if t in ["hi", "hello", "hey", "yo"]:
-        return random.choice([
-            "Yo.",
-            "Yeah?",
-            "…yo.",
-            "What.",
-            "Yo… you again."
-        ])
+        return random.choice(["Yo.", "Yeah?", "What.", "Yo… you again."])
 
     if t in ["thanks", "thank you"]:
-        return random.choice([
-            "Yeah.",
-            "Don’t mention it.",
-            "Whatever.",
-            "Yeah… sure."
-        ])
+        return random.choice(["Yeah.", "No problem.", "We good."])
 
     if t in ["bye", "goodbye"]:
-        return random.choice([
-            "Later.",
-            "Aight.",
-            "Don’t disappear.",
-            "Yeah yeah, go."
-        ])
+        return random.choice(["Later.", "Aight.", "Don’t disappear."])
 
     return None
 
 # -------------------------
-# JESSE SPEECH ENGINE (NEW CORE)
+# SPEECH ENGINE (SAFE VERSION)
 # -------------------------
 def messify(base, arc, emotion, relationship):
-    prefixes = ["Yo", "Yo…", "Alright", "Fine", "Aight", ""]
-    hesitations = ["", "...", " I guess.", " whatever.", " man.", " dude."]
-    self_comments = ["", " not gonna lie.", " I guess.", " whatever.", " yeah."]
-    endings = ["", ".", "…", " yo.", " let's go."]
+    prefixes = ["Yo", "Yo…", "Alright", "Aight", ""]
+    hesitations = ["", "...", " I guess.", " whatever."]
+    endings = ["", ".", "…", " yo."]
 
     text = random.choice(prefixes) + " " + base
 
     if arc == "strict":
-        text += " Focus up."
+        text += " Focus."
     elif arc == "locked_in":
         text += " Keep going."
 
@@ -260,16 +246,10 @@ def messify(base, arc, emotion, relationship):
     elif emotion == "proud":
         text += " Good."
 
-    # relationship bleed
-    if relationship == "old_friend":
-        if random.random() < 0.3:
-            text = "You again. " + text
+    if relationship == "old_friend" and random.random() < 0.25:
+        text = "You again. " + text
 
-    # imperfection injection
     text += random.choice(hesitations)
-    if random.random() < 0.4:
-        text += random.choice(self_comments)
-
     text += random.choice(endings)
 
     return text.strip()
@@ -315,16 +295,25 @@ def reply(text):
 
         return "Not found.", "default"
 
-    return "…", "default"
+    return "Yo.", "default"
 
 # -------------------------
-# GIF SYSTEM (UNCHANGED)
+# 🔥 FIXED GIF SYSTEM (RESTORED ORIGINAL IDS)
 # -------------------------
 GIFS = {
-    "task_added": ["GIF1"],
-    "task_done": ["GIF2"],
-    "focus": ["GIF3"],
-    "default": ["GIF4"]
+    "task_added": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ],
+    "task_done": [
+        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
+        "CgACAgQAAxkBAAIEeWo_F9QX-x12U1EejZaXVvwcHPtsAAJKAwACaoAEU0BH5rBCYtisPAQ"
+    ],
+    "focus": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ],
+    "default": [
+        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
+    ]
 }
 
 
@@ -354,7 +343,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         determine_arc_state()
 
         arc = MEMORY["arc_state"]
-        emotion = MEMORY.get("emotion_state", "neutral")
+        emotion = MEMORY["emotion_state"]
         rel = relationship_state()
 
         response, event = reply(text)
