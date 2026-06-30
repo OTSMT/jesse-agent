@@ -55,12 +55,10 @@ def load_memory():
         "relationship": 0,
         "personality_seed": 0,
 
-        # Jesse 2.0
         "last_messages": [],
         "last_reply_time": None,
         "repeat_block": "",
 
-        # Jesse 3.0
         "task_memory": {},
         "weekly_stats": {
             "adds": 0,
@@ -68,9 +66,8 @@ def load_memory():
             "week_start": str(datetime.date.today()),
         },
 
-        # 🔥 JESSE 3.5 ADDITIONS
-        "task_emotions": {},          # task -> avoid/neutral/liked
-        "task_fail_patterns": {},     # task -> fail count
+        "task_emotions": {},
+        "task_fail_patterns": {},
         "weekly_history": [],
         "global_behavior_score": 0,
     }
@@ -171,14 +168,10 @@ def mark_done(name):
     return False
 
 # -------------------------
-# 3.5 TASK INTELLIGENCE
+# TASK INTELLIGENCE
 # -------------------------
 def set_task_emotion(task, state):
     MEMORY["task_emotions"][task] = state
-
-
-def get_task_emotion(task):
-    return MEMORY["task_emotions"].get(task, "neutral")
 
 
 def update_fail_pattern(task, success):
@@ -189,14 +182,9 @@ def update_fail_pattern(task, success):
         MEMORY["task_fail_patterns"][task] += 1
 
 
-def failure_level(task):
-    return MEMORY["task_fail_patterns"].get(task, 0)
-
-
 def task_score(task):
-    # higher = more ignored / avoided
     age = MEMORY["task_memory"].get(task, {}).get("mentions", 0)
-    fails = failure_level(task)
+    fails = MEMORY["task_fail_patterns"].get(task, 0)
     return age + (fails * 3)
 
 # -------------------------
@@ -213,9 +201,9 @@ def track_action(action):
 
 
 def update_behavior_history():
-    recent = MEMORY["recent_actions"]
-    adds = recent.count("add")
-    dones = recent.count("done")
+    r = MEMORY["recent_actions"]
+    adds = r.count("add")
+    dones = r.count("done")
 
     if adds == 0 and dones == 0:
         MEMORY["behavior_history"].append("idle")
@@ -271,29 +259,42 @@ def personality():
     return "chaotic"
 
 # -------------------------
-# HUMAN LAYER
+# GIF SYSTEM (RESTORED)
 # -------------------------
-def handle_human(text):
-    t = text.lower().strip()
-    p = personality()
+GIFS = {
+    "task_added": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ],
+    "task_done": [
+        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
+        "CgACAgQAAxkBAANuaj0K_bkzP8ZcOpEHDLI1WXXQtSYAAlgIAAIVdXxRISrlCSjFWs88BA"
+    ],
+    "default": [
+        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA",
+        "CgACAgQAAxkBAANyaj0LJVuPaT_cfd4RvqIivMF4vdMAAv4CAAKzsAxTGIFPam3qjak8BA"
+    ],
+    "focus": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ]
+}
 
-    if t in ["hi", "hello", "yo", "hey"]:
-        return random.choice({
-            "cold": ["Yeah.", "What.", "Yo."],
-            "warm": ["Yo man.", "Hey.", "Yeah what's up."],
-            "chaotic": ["Yo… again?", "What now.", "Yeah yeah I’m here."]
-        }.get(p, ["Yo.", "Yeah?", "What."]))
 
-    if t in ["thanks", "thank you"]:
-        return random.choice(["Yeah.", "No problem.", "We good."])
+def get_gif(event):
+    return random.choice(GIFS.get(event, GIFS["default"]))
 
-    if t in ["bye", "goodbye"]:
-        return random.choice(["Later.", "Aight.", "Don’t disappear."])
 
-    return None
+async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
+    try:
+        gif = get_gif(event)
+        await context.bot.send_animation(
+            chat_id=update.effective_chat.id,
+            animation=gif
+        )
+    except:
+        pass
 
 # -------------------------
-# SPEECH ENGINE (3.5)
+# SPEECH ENGINE
 # -------------------------
 def messify(base, arc, emotion, rel):
 
@@ -311,15 +312,8 @@ def messify(base, arc, emotion, rel):
     elif arc == "locked_in":
         text += " Keep going."
 
-    if emotion == "stressed":
-        text += " Slow down."
-
-    # LONG TERM VOICE DRIFT
     if rel > 60 and random.random() < 0.2:
-        text = "I’ve seen this pattern before. " + text
-
-    if p == "chaotic":
-        text += random.choice([" not gonna lie.", " idk.", " whatever."])
+        text = "I’ve seen this before. " + text
 
     return text.strip()
 
@@ -336,7 +330,8 @@ def reply(text):
         save_task(task)
 
         MEMORY["tasks_added"] += 1
-        track_action("add")
+        update_fail_pattern(task, True)
+        MEMORY["weekly_stats"]["adds"] += 1
 
         set_task_emotion(task, "neutral")
         return "Got it.", "task_added"
@@ -350,6 +345,7 @@ def reply(text):
         if ok:
             MEMORY["tasks_done"] += 1
             update_fail_pattern(task, True)
+            MEMORY["weekly_stats"]["done"] += 1
             return "Done.", "task_done"
 
         update_fail_pattern(task, False)
@@ -364,7 +360,7 @@ def reply(text):
         score = task_score(t)
 
         if score > 12:
-            return f"You’ve been avoiding this for a while → {t}", "focus"
+            return f"You’ve been avoiding this → {t}", "focus"
         elif score > 6:
             return f"This again… → {t}", "focus"
 
@@ -374,6 +370,7 @@ def reply(text):
         tasks = pending_tasks()
         if not tasks:
             return "Nothing left.", "default"
+
         return "Here’s the board:\n- " + "\n- ".join(extract_title(t) for t in tasks), "default"
 
     return "Yo.", "default"
@@ -392,16 +389,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         base, event = reply(text)
 
-        final = messify(
-            base,
-            MEMORY["arc_state"],
-            MEMORY["emotion_state"],
-            MEMORY["relationship"]
-        )
+        final = messify(base, MEMORY["arc_state"], MEMORY["emotion_state"], MEMORY["relationship"])
 
         save_memory(MEMORY)
 
         await update.message.reply_text(final)
+        await send_gif(update, context, event)
 
     except Exception as e:
         print("ERROR:", e)
