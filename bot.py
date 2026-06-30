@@ -53,10 +53,17 @@ def load_memory():
         "emotion_state": "neutral",
 
         "relationship": 0,
+        "personality_seed": 0,
 
-        # 9.0 features kept
-        "task_weights": {},
+        "weekly_stats": {"adds": 0, "done": 0},
+
+        "pressure_map": {},
+
+        # 8.0 ADDITIONS
+        "last_action": None,
         "repeat_guard": "",
+        "slip_risk": 0,
+        "prediction": None
     }
 
     if not page:
@@ -132,34 +139,29 @@ def extract_status(page):
 def pending_tasks():
     return [t for t in get_tasks() if extract_status(t) != "done"]
 
-# -------------------------
-# WEIGHT SYSTEM (kept)
-# -------------------------
-def update_task_weight(title, success):
-    if title not in MEMORY["task_weights"]:
-        MEMORY["task_weights"][title] = 0
 
-    if success:
-        MEMORY["task_weights"][title] -= 0.5
-    else:
-        MEMORY["task_weights"][title] += 1
+def save_task(text):
+    notion.pages.create(
+        parent={"database_id": NOTION_DB_ID},
+        properties={
+            "Task": {"title": [{"text": {"content": text}}]},
+            "Status": {"select": {"name": "Pending"}},
+        },
+    )
 
 
-def pick_focus_task(tasks):
-    if not tasks:
-        return None
-
-    scored = []
-    for t in tasks:
-        title = extract_title(t)
-        weight = MEMORY["task_weights"].get(title, 0)
-        scored.append((weight, title))
-
-    scored.sort(reverse=True)
-    return scored[0][1]
+def mark_done(name):
+    for t in get_tasks():
+        if extract_title(t).strip().lower() == name.strip().lower():
+            notion.pages.update(
+                page_id=t["id"],
+                properties={"Status": {"select": {"name": "Done"}}},
+            )
+            return True
+    return False
 
 # -------------------------
-# BEHAVIOR CORE
+# BEHAVIOR + ARC
 # -------------------------
 def update_behavior():
     r = MEMORY["recent_actions"]
@@ -174,19 +176,17 @@ def update_behavior():
     else:
         MEMORY["behavior_history"].append("productive")
 
-    if len(MEMORY["behavior_history"]) > 30:
+    if len(MEMORY["behavior_history"]) > 25:
         MEMORY["behavior_history"].pop(0)
 
 
 def arc_state():
     h = MEMORY["behavior_history"]
-
     if len(h) < 5:
         MEMORY["arc_state"] = "supportive"
         return
 
     recent = h[-5:]
-
     if recent.count("overload") >= 3:
         MEMORY["arc_state"] = "strict"
     elif recent.count("productive") >= 3:
@@ -197,12 +197,64 @@ def arc_state():
 
 def emotion():
     h = MEMORY["behavior_history"][-10:]
-
     MEMORY["emotion_state"] = (
         "stressed" if h.count("overload") > h.count("productive")
         else "calm" if h.count("productive") > h.count("overload")
         else "neutral"
     )
+
+# -------------------------
+# PREDICTION ENGINE (8.0 CORE)
+# -------------------------
+def predict_next(text):
+    t = text.lower()
+
+    if t.startswith("add"):
+        return "add_spike"
+    if t.startswith("done"):
+        return "execution"
+    if t == "focus":
+        return "focus_attempt"
+    if t == "list":
+        return "check_state"
+
+    if MEMORY["behavior_history"][-3:].count("idle") >= 2:
+        return "slip_risk"
+
+    return "neutral"
+
+# -------------------------
+# GIF SYSTEM (FIXED)
+# -------------------------
+GIFS = {
+    "task_added": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ],
+    "task_done": [
+        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA"
+    ],
+    "focus": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ],
+    "default": [
+        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
+    ]
+}
+
+
+def get_gif(event):
+    return random.choice(GIFS.get(event, GIFS["default"]))
+
+
+async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
+    try:
+        gif = get_gif(event)
+        await context.bot.send_animation(
+            chat_id=update.effective_chat.id,
+            animation=gif
+        )
+    except:
+        pass
 
 # -------------------------
 # HUMAN LAYER
@@ -222,45 +274,54 @@ def handle_human(text):
     return None
 
 # -------------------------
-# GIF SYSTEM (FIXED + GUARANTEED)
+# SPEECH ENGINE (8.0 ENHANCED)
 # -------------------------
-GIFS = {
-    "task_added": [
-        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
-    ],
-    "task_done": [
-        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA"
-    ],
-    "focus": [
-        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
-    ],
-    "default": [
-        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
-    ]
+def personality():
+    seed = (MEMORY["relationship"] + MEMORY["conversations"]) % 100
+    if seed < 20:
+        return "cold"
+    if seed < 50:
+        return "neutral"
+    if seed < 80:
+        return "warm"
+    return "chaotic"
+
+
+JESSE_LINES = {
+    "cold": ["Yeah.", "What.", "Alright."],
+    "neutral": ["Yo.", "Alright, listen.", "Yeah I got you."],
+    "warm": ["Yo man.", "Aight, I hear you.", "Let’s go."],
+    "chaotic": ["Yo… again?", "Bro what now.", "Aight aight."]
 }
 
 
-def resolve_event(event):
-    if event in GIFS:
-        return event
-    return "default"
+def messify(base, arc, emotion, rel, prediction):
 
+    p = personality()
 
-def get_gif(event):
-    return random.choice(GIFS[resolve_event(event)])
+    # prediction injection
+    if prediction == "slip_risk":
+        base = "You’re drifting again. " + base
+    elif prediction == "add_spike":
+        base = "Alright, building momentum. " + base
 
+    text = random.choice(JESSE_LINES[p]) + " " + base
 
-async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
-    try:
-        await context.bot.send_animation(
-            chat_id=update.effective_chat.id,
-            animation=get_gif(event)
-        )
-    except:
-        pass
+    if arc == "strict":
+        text += " Focus."
+    elif arc == "locked_in":
+        text += " Keep going."
+
+    if emotion == "stressed":
+        text += " Slow down."
+
+    if rel > 60 and random.random() < 0.2:
+        text = "Still here? " + text
+
+    return text.strip()
 
 # -------------------------
-# CORE REPLY (FIXED SIGNALING)
+# CORE REPLY
 # -------------------------
 def reply(text):
 
@@ -270,28 +331,23 @@ def reply(text):
         return "Yeah.", "default"
     MEMORY["repeat_guard"] = text
 
-    tasks = pending_tasks()
-
-    # IMPORTANT FIX: guaranteed event routing
-
     if text == "list":
+        tasks = pending_tasks()
         if not tasks:
             return "Nothing left.", "default"
         return "Here’s the board:\n- " + "\n- ".join(extract_title(t) for t in tasks), "default"
 
     if text == "focus":
-        t = pick_focus_task(tasks)
-        if not t:
+        tasks = pending_tasks()
+        if not tasks:
             return "Nothing left.", "default"
-        return "Do this → " + t, "focus"
+        return "Do this → " + extract_title(tasks[0]), "focus"
 
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
+        save_task(task)
         MEMORY["tasks_added"] += 1
         MEMORY["recent_actions"].append("add")
-        update_task_weight(task, False)
-
-        save_task(task)
         return "Got it.", "task_added"
 
     if text.startswith("done"):
@@ -301,10 +357,8 @@ def reply(text):
 
         if ok:
             MEMORY["tasks_done"] += 1
-            update_task_weight(task, True)
             return "Done.", "task_done"
 
-        update_task_weight(task, False)
         return "Not found.", "default"
 
     return "Yo.", "default"
@@ -322,9 +376,17 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         arc_state()
         emotion()
 
+        prediction = predict_next(text)
+
         response, event = reply(text)
 
-        final = response
+        final = messify(
+            response,
+            MEMORY["arc_state"],
+            MEMORY["emotion_state"],
+            MEMORY["relationship"],
+            prediction
+        )
 
         save_memory(MEMORY)
 
