@@ -3,6 +3,7 @@ import random
 import asyncio
 import datetime
 import traceback
+import json
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
@@ -36,6 +37,7 @@ def get_memory_page():
         pass
     return None
 
+
 def load_memory():
     page = get_memory_page()
 
@@ -48,7 +50,6 @@ def load_memory():
         "last_recap_date": None,
         "chat_id": None,
 
-        # SMART JESSE ADDITIONS
         "recent_actions": [],
         "fail_streak": 0,
         "success_streak": 0,
@@ -60,12 +61,21 @@ def load_memory():
     try:
         props = page.get("properties", {})
         data = props.get("Data", {}).get("rich_text", [])
-        if data:
-            return {**default, **eval(data[0]["plain_text"])}
-    except:
-        pass
 
-    return default
+        if not data:
+            return default
+
+        raw = data[0]["plain_text"]
+
+        try:
+            return {**default, **json.loads(raw)}
+        except:
+            # fallback for old eval-based memory (migration safety)
+            return {**default, **eval(raw)}
+
+    except:
+        return default
+
 
 def save_memory(mem):
     page = get_memory_page()
@@ -78,13 +88,14 @@ def save_memory(mem):
             properties={
                 "Data": {
                     "rich_text": [
-                        {"text": {"content": str(mem)}}
+                        {"text": {"content": json.dumps(mem)}}
                     ]
                 }
             },
         )
     except:
         pass
+
 
 MEMORY = load_memory()
 
@@ -97,6 +108,7 @@ def get_tasks():
     except:
         return []
 
+
 def extract_title(page):
     try:
         props = page.get("properties", {})
@@ -108,20 +120,21 @@ def extract_title(page):
         pass
     return "UNKNOWN"
 
+
 def extract_status(page):
     try:
         props = page.get("properties", {})
-        for v in props.values():
-            if v.get("type") == "select":
-                sel = v.get("select")
-                if sel and sel.get("name"):
-                    return sel["name"].strip().lower()
-        return "pending"
+        status = props.get("Status", {}).get("select")
+        if status and status.get("name"):
+            return status["name"].strip().lower()
     except:
-        return "pending"
+        pass
+    return "pending"
+
 
 def pending_tasks():
     return [t for t in get_tasks() if extract_status(t) != "done"]
+
 
 def save_task(text):
     notion.pages.create(
@@ -131,6 +144,7 @@ def save_task(text):
             "Status": {"select": {"name": "Pending"}},
         },
     )
+
 
 def mark_done(name):
     for t in get_tasks():
@@ -167,6 +181,7 @@ def track_action(action):
     if len(MEMORY["recent_actions"]) > 5:
         MEMORY["recent_actions"].pop(0)
 
+
 def analyze_behavior():
     recent = MEMORY.get("recent_actions", [])
 
@@ -175,10 +190,8 @@ def analyze_behavior():
 
     if adds >= 3 and dones == 0:
         return "overwhelming"
-
     if dones >= adds and adds > 0:
         return "productive"
-
     if adds == 0 and dones == 0:
         return "idle"
 
@@ -216,17 +229,19 @@ GIFS = {
     ]
 }
 
+
 def get_gif(event):
     pool = GIFS.get(event, GIFS["default"])
     return random.choice(pool) if pool else None
 
-async def send_gif(update: Update, event: str):
+
+async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
     try:
         gif = get_gif(event)
         if not gif:
             return
 
-        await update.get_bot().send_animation(
+        await context.bot.send_animation(
             chat_id=update.effective_chat.id,
             animation=gif
         )
@@ -244,6 +259,7 @@ def mood(task_count):
     if task_count <= 5:
         return "focused"
     return "overloaded"
+
 
 def jesse(event, task_count):
     update_streak()
@@ -299,7 +315,6 @@ def reply(text):
         MEMORY["tasks_added"] += 1
 
         track_action("add")
-
         return random.choice(JESSE_LINES["task_added"]), "task_added"
 
     if text.startswith("done"):
@@ -328,7 +343,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_memory(MEMORY)
 
         await update.message.reply_text(response)
-        await send_gif(update, event)
+        await send_gif(update, context, event)
 
     except Exception as e:
         print("ERROR:", e)
@@ -341,6 +356,7 @@ def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
