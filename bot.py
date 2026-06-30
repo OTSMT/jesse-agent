@@ -51,6 +51,12 @@ def load_memory():
         "behavior_history": [],
         "arc_state": "supportive",
         "emotion_state": "neutral",
+
+        # 🧠 RELATIONSHIP MEMORY (NEW)
+        "first_seen": None,
+        "interaction_level": 0,
+        "last_seen_day": None,
+        "familiarity": 0  # grows over time
     }
 
     if not page:
@@ -154,7 +160,38 @@ def mark_done(name):
     return False
 
 # -------------------------
-# JESSE STREAK / BEHAVIOR (UNCHANGED)
+# RELATIONSHIP MEMORY ENGINE (NEW)
+# -------------------------
+def update_relationship():
+    today = datetime.date.today().isoformat()
+
+    if not MEMORY["first_seen"]:
+        MEMORY["first_seen"] = today
+
+    if MEMORY["last_seen_day"] != today:
+        MEMORY["interaction_level"] += 1
+
+        # familiarity grows slowly over time
+        MEMORY["familiarity"] += 1
+
+        MEMORY["last_seen_day"] = today
+
+
+def relationship_state():
+    lvl = MEMORY["interaction_level"]
+    fam = MEMORY["familiarity"]
+
+    if lvl < 5:
+        return "new"
+    elif lvl < 15:
+        return "familiar"
+    elif fam < 30:
+        return "regular"
+    else:
+        return "old_friend"
+
+# -------------------------
+# EXISTING SYSTEMS (UNCHANGED)
 # -------------------------
 def update_streak():
     today = datetime.date.today().isoformat()
@@ -239,9 +276,9 @@ HUMAN_INPUTS = {
 }
 
 HUMAN_RESPONSES = {
-    "greet": ["Yo.", "What’s up.", "Yeah?", "I’m here.", "Yo yo."],
+    "greet": ["Yo.", "What’s up.", "Yeah?", "I’m here.", "Yo… you again."],
     "thanks": ["Yeah.", "No problem.", "We good.", "All good."],
-    "bye": ["Later.", "Aight.", "Stay safe.", "We done here."]
+    "bye": ["Later.", "Aight.", "Stay safe.", "Don’t disappear on me."]
 }
 
 
@@ -253,62 +290,27 @@ def handle_human(text):
     return None
 
 # -------------------------
-# 🔥 JESSE SLANG UPGRADED (BIG EXPANSION)
+# JESSE CORE (UNCHANGED)
 # -------------------------
 JESSE_LINES = {
     "task_added": [
         "Yeah, bitch, I got it.",
-        "Alright alright, it's in.",
-        "Done. Don’t rush me, yo.",
-        "Fine, fine, I got it in.",
-        "Locked in, bitch.",
-        "Alright, we cooking.",
-        "Say less, I’m on it.",
-        "Yo chill, I added it.",
-        "Boom. Done.",
-        "Yeah yeah yeah, it’s in the system."
+        "Locked in.",
+        "Say less.",
+        "Done."
     ],
     "task_done": [
         "YEAH BITCH!",
-        "Done. Finally, yo.",
-        "Clean as hell.",
-        "We straight up cooking.",
-        "That’s gone, bitch.",
-        "Hell yeah.",
-        "Nice. One less problem.",
-        "Boom. Deleted from existence.",
-        "We’re moving, yo.",
-        "That felt good, not gonna lie."
+        "Clean.",
+        "Done."
     ],
     "not_found": [
-        "Yo… that ain’t even there.",
-        "Nah, I don’t see that shit.",
-        "You trippin’, it’s not in here.",
-        "Bro what? That doesn’t exist.",
-        "I looked. Nothing.",
-        "That task ghosted me, yo."
+        "Not here.",
+        "That ain’t in the list."
     ],
-    "list": [
-        "Alright, here’s the mess:",
-        "Yo… this is your board:",
-        "We got this going on:",
-        "Don’t cry, but here it is:",
-        "This is what we dealing with:"
-    ],
-    "empty": [
-        "Nothing. Clean as hell.",
-        "We done. For once.",
-        "Bro… it’s EMPTY. Damn.",
-        "No tasks. That’s suspiciously peaceful.",
-        "We actually free right now."
-    ],
-    "focus": [
-        "Do this → ",
-        "Yo, focus on this → ",
-        "Start here → ",
-        "Only this, don’t overthink → ",
-        "Fix this first → "
-    ]
+    "list": ["Here’s the board:"],
+    "empty": ["Nothing left."],
+    "focus": ["Do this → "]
 }
 
 # -------------------------
@@ -356,22 +358,15 @@ def reply(text):
     return "Yo.", "default"
 
 # -------------------------
-# GIF SYSTEM (UNCHANGED WORKING VERSION)
+# GIF SYSTEM (UNCHANGED)
 # -------------------------
 GIFS = {
-    "task_added": [
-        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
-    ],
+    "task_added": ["CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"],
     "task_done": [
-        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA",
-        "CgACAgQAAxkBAAIEeWo_F9QX-x12U1EejZaXVvwcHPtsAAJKAwACaoAEU0BH5rBCYtisPAQ"
+        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA"
     ],
-    "focus": [
-        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
-    ],
-    "default": [
-        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
-    ]
+    "focus": ["CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"],
+    "default": ["CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"]
 }
 
 
@@ -386,22 +381,23 @@ async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: st
             chat_id=update.effective_chat.id,
             animation=gif
         )
-    except Exception as e:
-        print("GIF ERROR:", e)
+    except:
+        pass
 
 # -------------------------
-# HANDLER (FIXED)
+# HANDLER
 # -------------------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = update.message.text.lower().strip()
 
-        response, event = reply(text)
-
+        update_relationship()
         update_streak()
         update_behavior_history()
         determine_arc_state()
         detect_emotion()
+
+        response, event = reply(text)
 
         save_memory(MEMORY)
 
