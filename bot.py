@@ -53,17 +53,10 @@ def load_memory():
         "emotion_state": "neutral",
 
         "relationship": 0,
-        "weekly_stats": {"adds": 0, "done": 0},
 
-        # 8.0 retained
-        "pressure_map": {},
-        "repeat_guard": "",
-        "prediction": None,
-
-        # 9.0 NEW
+        # 9.0 features kept
         "task_weights": {},
-        "category_success": {},
-        "focus_lock": None
+        "repeat_guard": "",
     }
 
     if not page:
@@ -140,20 +133,8 @@ def pending_tasks():
     return [t for t in get_tasks() if extract_status(t) != "done"]
 
 # -------------------------
-# TASK WEIGHT SYSTEM (9.0 CORE)
+# WEIGHT SYSTEM (kept)
 # -------------------------
-def task_weight(title, status):
-    base = 1
-
-    if title in MEMORY["task_weights"]:
-        base += MEMORY["task_weights"][title]
-
-    if status != "done":
-        base += 1
-
-    return base
-
-
 def update_task_weight(title, success):
     if title not in MEMORY["task_weights"]:
         MEMORY["task_weights"][title] = 0
@@ -163,25 +144,19 @@ def update_task_weight(title, success):
     else:
         MEMORY["task_weights"][title] += 1
 
-# -------------------------
-# CATEGORY SYSTEM
-# -------------------------
-def detect_category(text):
-    t = text.lower()
-    if any(x in t for x in ["email", "invoice", "call"]):
-        return "admin"
-    if any(x in t for x in ["study", "read", "learn"]):
-        return "learning"
-    if any(x in t for x in ["work", "project"]):
-        return "work"
-    if any(x in t for x in ["gym", "run", "sleep"]):
-        return "personal"
-    return "unknown"
 
+def pick_focus_task(tasks):
+    if not tasks:
+        return None
 
-def category_pressure(cat):
-    d = MEMORY["pressure_map"].get(cat, {"hit": 0, "miss": 0})
-    return d["miss"] / (d["hit"] + d["miss"] + 1)
+    scored = []
+    for t in tasks:
+        title = extract_title(t)
+        weight = MEMORY["task_weights"].get(title, 0)
+        scored.append((weight, title))
+
+    scored.sort(reverse=True)
+    return scored[0][1]
 
 # -------------------------
 # BEHAVIOR CORE
@@ -205,11 +180,13 @@ def update_behavior():
 
 def arc_state():
     h = MEMORY["behavior_history"]
+
     if len(h) < 5:
         MEMORY["arc_state"] = "supportive"
         return
 
     recent = h[-5:]
+
     if recent.count("overload") >= 3:
         MEMORY["arc_state"] = "strict"
     elif recent.count("productive") >= 3:
@@ -220,27 +197,12 @@ def arc_state():
 
 def emotion():
     h = MEMORY["behavior_history"][-10:]
+
     MEMORY["emotion_state"] = (
         "stressed" if h.count("overload") > h.count("productive")
         else "calm" if h.count("productive") > h.count("overload")
         else "neutral"
     )
-
-# -------------------------
-# SMART FOCUS (9.0 CORE)
-# -------------------------
-def pick_focus_task(tasks):
-    if not tasks:
-        return None
-
-    scored = []
-    for t in tasks:
-        title = extract_title(t)
-        weight = MEMORY["task_weights"].get(title, 0)
-        scored.append((weight, title))
-
-    scored.sort(reverse=True)
-    return scored[0][1]
 
 # -------------------------
 # HUMAN LAYER
@@ -260,18 +222,32 @@ def handle_human(text):
     return None
 
 # -------------------------
-# GIF SYSTEM (SAFE LOCK)
+# GIF SYSTEM (FIXED + GUARANTEED)
 # -------------------------
 GIFS = {
-    "task_added": ["CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"],
-    "task_done": ["CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA"],
-    "focus": ["CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"],
-    "default": ["CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"]
+    "task_added": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ],
+    "task_done": [
+        "CgACAgQAAxkBAANvaj0LBnguOITXUPIWodCIx7BUCGsAArYDAAKCb51QTuahwuylJAk8BA"
+    ],
+    "focus": [
+        "CgACAgQAAxkBAAIFpGo_i6l-7y4q7oZeumVRjAMha46MAAJMBgACCpJFUc5OZtXsmw9OPAQ"
+    ],
+    "default": [
+        "CgACAgQAAxkBAANwaj0LDR9fIlU9WkEigLOHE5sV2wMAAiQDAAIqpyxTGZ0lrfl2IpQ8BA"
+    ]
 }
 
 
+def resolve_event(event):
+    if event in GIFS:
+        return event
+    return "default"
+
+
 def get_gif(event):
-    return random.choice(GIFS.get(event or "default", GIFS["default"]))
+    return random.choice(GIFS[resolve_event(event)])
 
 
 async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: str):
@@ -284,46 +260,7 @@ async def send_gif(update: Update, context: ContextTypes.DEFAULT_TYPE, event: st
         pass
 
 # -------------------------
-# SPEECH ENGINE
-# -------------------------
-def personality():
-    seed = (MEMORY["relationship"] + MEMORY["conversations"]) % 100
-    return (
-        "cold" if seed < 20 else
-        "neutral" if seed < 50 else
-        "warm" if seed < 80 else
-        "chaotic"
-    )
-
-
-JESSE = {
-    "cold": ["Yeah.", "What.", "Alright."],
-    "neutral": ["Yo.", "Alright, listen.", "Yeah I got you."],
-    "warm": ["Yo man.", "Aight, I hear you.", "Let’s go."],
-    "chaotic": ["Yo… again?", "Bro what now.", "Aight aight."]
-}
-
-
-def messify(base, arc, emotion, rel):
-    p = personality()
-
-    text = random.choice(JESSE[p]) + " " + base
-
-    if arc == "strict":
-        text += " Focus."
-    elif arc == "locked_in":
-        text += " Keep going."
-
-    if emotion == "stressed":
-        text += " Slow down."
-
-    if rel > 60 and random.random() < 0.2:
-        text = "Still here? " + text
-
-    return text.strip()
-
-# -------------------------
-# CORE REPLY
+# CORE REPLY (FIXED SIGNALING)
 # -------------------------
 def reply(text):
 
@@ -334,6 +271,8 @@ def reply(text):
     MEMORY["repeat_guard"] = text
 
     tasks = pending_tasks()
+
+    # IMPORTANT FIX: guaranteed event routing
 
     if text == "list":
         if not tasks:
@@ -348,10 +287,11 @@ def reply(text):
 
     if text.startswith("add"):
         task = text.replace("add", "", 1).strip()
-        save_task(task)
         MEMORY["tasks_added"] += 1
         MEMORY["recent_actions"].append("add")
         update_task_weight(task, False)
+
+        save_task(task)
         return "Got it.", "task_added"
 
     if text.startswith("done"):
@@ -384,12 +324,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         response, event = reply(text)
 
-        final = messify(
-            response,
-            MEMORY["arc_state"],
-            MEMORY["emotion_state"],
-            MEMORY["relationship"]
-        )
+        final = response
 
         save_memory(MEMORY)
 
